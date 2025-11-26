@@ -1,13 +1,10 @@
 package com.eld.driver.ui.screens.vehicle
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,14 +13,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.eld.driver.ui.components.CurvedWaveShape
 import com.eld.driver.ui.theme.*
 
 /**
- * Vehicle Confirmation Screen - Shows selected vehicle with confirmation
+ * Vehicle Confirmation Screen - Shows selected vehicle details for confirmation
  */
 @Composable
 fun VehicleConfirmationScreen(
@@ -37,177 +35,247 @@ fun VehicleConfirmationScreen(
     // Get the current vehicle
     val currentVehicle = filteredVehicles.firstOrNull { it.id == currentVehicleId }
 
-    // Auto navigate to dashboard after 2 seconds
-    LaunchedEffect(currentVehicleId) {
-        if (currentVehicleId != null) {
-            kotlinx.coroutines.delay(2000)
-            navController.navigate("dashboard") {
-                popUpTo("login") { inclusive = true }
-            }
-        }
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(SecondaryBackground)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(Spacing.xl),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Success icon with gradient background
+            // Header with gradient and curved wave
             Box(
                 modifier = Modifier
-                    .size(120.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                AccentGreen.copy(alpha = 0.2f),
-                                AccentGreen.copy(alpha = 0.05f)
+                    .fillMaxWidth()
+                    .height(96.dp)
+            ) {
+                // Blue gradient background
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Blue700, Blue600)
                             )
                         )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Success",
-                    modifier = Modifier.size(80.dp),
-                    tint = AccentGreen
                 )
-            }
 
-            Spacer(modifier = Modifier.height(Spacing.xxl))
-
-            // Success message
-            Text(
-                text = "Vehicle Confirmed",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(Spacing.md))
-
-            Text(
-                text = "You're all set to start driving",
-                style = MaterialTheme.typography.bodyLarge,
-                color = TextSecondary,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(Spacing.xxl))
-
-            // Vehicle info card
-            if (currentVehicle != null) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color.White
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                    shape = RoundedCornerShape(CornerRadius.large)
+                // Top navigation bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(horizontal = Spacing.md),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+
+                    Text(
+                        text = "Change Vehicle",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+
+                    // Placeholder for symmetry
+                    Spacer(modifier = Modifier.size(48.dp))
+                }
+
+                // Curved background shape at bottom
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .align(Alignment.BottomCenter)
+                        .clip(CurvedWaveShape())
+                        .background(SecondaryBackground)
+                )
+            }
+
+            // Content
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = Spacing.lg)
+            ) {
+                Spacer(modifier = Modifier.height(Spacing.xl))
+
+                // "ASSIGNED TRUCK" header
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFE5E7EB), RoundedCornerShape(8.dp))
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "ASSIGNED TRUCK",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(Spacing.xl))
+
+                // Vehicle details
+                if (currentVehicle != null) {
+                    // ID
+                    VehicleDetailRow(
+                        icon = Icons.Default.LocalShipping,
+                        label = "ID",
+                        value = currentVehicle.vehicleNumber
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.xl))
+
+                    // VIN
+                    if (currentVehicle.vin != null) {
+                        VehicleDetailRow(
+                            icon = Icons.Default.CreditCard,
+                            label = "VIN",
+                            value = currentVehicle.vin!!
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.xl))
+                    }
+
+                    // Year
+                    if (currentVehicle.year != null) {
+                        VehicleDetailRow(
+                            icon = Icons.Default.CalendarToday,
+                            label = "Year",
+                            value = currentVehicle.year.toString()
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.xl))
+                    }
+
+                    // Manufacturer
+                    if (currentVehicle.make != null) {
+                        VehicleDetailRow(
+                            icon = Icons.Default.Factory,
+                            label = "Manufacturer",
+                            value = currentVehicle.make!!
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.xl))
+                    }
+
+                    // Model
+                    if (currentVehicle.model != null) {
+                        VehicleDetailRow(
+                            icon = Icons.Default.DirectionsCar,
+                            label = "Model",
+                            value = currentVehicle.model!!
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // Action buttons
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = Spacing.xl),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+                ) {
+                    // Decline button
+                    OutlinedButton(
+                        onClick = { navController.popBackStack() },
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(Spacing.lg),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Blue600
+                        ),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(
+                            width = 2.dp
+                        )
                     ) {
-                        // Vehicle icon
-                        Box(
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(CircleShape)
-                                .background(Blue600.copy(alpha = 0.1f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.DirectionsCar,
-                                contentDescription = null,
-                                tint = Blue600,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(Spacing.md))
-
-                        // Vehicle number
                         Text(
-                            text = currentVehicle.vehicleNumber,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                            text = "Decline",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 18.sp
                         )
+                    }
 
-                        Spacer(modifier = Modifier.height(Spacing.sm))
-
-                        // Vehicle display name
+                    // Accept button
+                    Button(
+                        onClick = {
+                            // Navigate to dashboard
+                            navController.navigate("dashboard") {
+                                popUpTo("login") { inclusive = true }
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Blue600
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(
+                            defaultElevation = 0.dp
+                        )
+                    ) {
                         Text(
-                            text = currentVehicle.displayName,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center
+                            text = "Accept",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 18.sp
                         )
-
-                        if (currentVehicle.vin != null) {
-                            Spacer(modifier = Modifier.height(Spacing.sm))
-                            Text(
-                                text = "VIN: ${currentVehicle.vin}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary,
-                                textAlign = TextAlign.Center
-                            )
-                        }
                     }
                 }
             }
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(Spacing.xxl))
+@Composable
+private fun VehicleDetailRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+    ) {
+        // Icon
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color.Gray,
+            modifier = Modifier.size(32.dp)
+        )
 
-            // Loading indicator
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = Blue600,
-                    strokeWidth = 2.dp
-                )
-
-                Spacer(modifier = Modifier.width(Spacing.md))
-
-                Text(
-                    text = "Loading dashboard...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
-            }
-
-            Spacer(modifier = Modifier.height(Spacing.xl))
-
-            // Manual navigation button
-            TextButton(
-                onClick = {
-                    navController.navigate("dashboard") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                }
-            ) {
-                Text(
-                    text = "Continue to Dashboard",
-                    color = Blue600,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium
-                )
-            }
+        // Label and value
+        Column {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                fontSize = 14.sp
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary,
+                fontSize = 18.sp
+            )
         }
     }
 }

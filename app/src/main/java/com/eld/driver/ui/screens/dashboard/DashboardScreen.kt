@@ -119,20 +119,29 @@ fun DashboardScreen(
                 .fillMaxSize()
                 .background(BgSecondary)
         ) {
-            // Blue gradient header (56dp)
+            // Header with gradient and curved wave
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Blue700, Blue600)
-                        )
-                    )
+                    .height(96.dp)  // Increased height to accommodate curve
             ) {
+                // Blue gradient background
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Blue700, Blue600)
+                            )
+                        )
+                )
+
+                // Top navigation bar
                 Row(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .height(56.dp)
                         .padding(horizontal = Spacing.lg),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -186,16 +195,17 @@ fun DashboardScreen(
                         }
                     }
                 }
-            }
 
-            // Curved wave transition (30dp)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(30.dp)
-                    .clip(CurvedWaveShape())
-                    .background(Blue600)
-            )
+                // Curved background shape at bottom
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)  // Height of the curved section
+                        .align(Alignment.BottomCenter)
+                        .clip(CurvedWaveShape())
+                        .background(BgSecondary)
+                )
+            }
 
             // Content with padding for bottom bar
             Column(
@@ -218,7 +228,7 @@ fun DashboardScreen(
                     onClick = { showDutyStatusModal = true },
                     modifier = Modifier
                         .weight(1f)
-                        .height(90.dp)
+                        .height(75.dp)  // Reduced from 90dp to 75dp for more compact design
                 )
 
                 // Vehicle Connection Card
@@ -228,7 +238,7 @@ fun DashboardScreen(
                     onClick = { /* TODO: Handle connection tap */ },
                     modifier = Modifier
                         .weight(1f)
-                        .height(90.dp)
+                        .height(75.dp)  // Reduced from 90dp to 75dp for more compact design
                 )
             }
 
@@ -321,14 +331,14 @@ private fun StatusCard(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = Spacing.md, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                .padding(horizontal = Spacing.md, vertical = 10.dp),  // Reduced from 12dp to 10dp
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),  // Reduced spacing
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Status badge (60dp circle)
+            // Status badge (50dp circle - reduced from 60dp)
             Box(
                 modifier = Modifier
-                    .size(60.dp)
+                    .size(50.dp)  // Reduced from 60dp to 50dp
                     .clip(CircleShape)
                     .background(getStatusColor(status)),
                 contentAlignment = Alignment.Center
@@ -337,21 +347,21 @@ private fun StatusCard(
                     text = status.shortName,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 14.sp  // Reduced from 16sp to 14sp
                 )
             }
 
             // Text content
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {  // Reduced from 4dp to 2dp
                 Text(
                     text = status.displayName,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,  // Changed from bodyLarge to bodyMedium
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Text(
                     text = duration,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,  // Changed from bodyMedium to bodySmall
                     color = TextSecondary
                 )
             }
@@ -404,23 +414,23 @@ private fun VehicleConnectionCard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = Spacing.md, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = Spacing.md, vertical = 10.dp),  // Reduced from 12dp to 10dp
+            verticalArrangement = Arrangement.spacedBy(6.dp)  // Reduced from 8dp to 6dp
         ) {
             // First line: Truck icon + Vehicle number
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),  // Reduced from 8dp to 6dp
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Default.LocalShipping,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)  // Reduced from 20dp to 18dp
                 )
                 Text(
                     text = vehicleNumber,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,  // Changed from bodyLarge to bodyMedium
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
@@ -428,18 +438,18 @@ private fun VehicleConnectionCard(
 
             // Second line: Wifi icon + Connection status
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),  // Reduced from 8dp to 6dp
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(14.dp)  // Reduced from 16dp to 14dp
                 )
                 Text(
                     text = connectionStatus.displayText,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,  // Changed from bodyLarge to bodyMedium
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White
                 )

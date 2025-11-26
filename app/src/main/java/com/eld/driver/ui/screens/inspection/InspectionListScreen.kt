@@ -22,7 +22,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.eld.driver.data.models.InspectionListItem
 import com.eld.driver.data.models.InspectionType
+import com.eld.driver.ui.components.CurvedWaveShape
 import com.eld.driver.ui.theme.*
+import androidx.compose.ui.graphics.Brush
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -50,36 +52,6 @@ fun InspectionListScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "DVIR Inspections",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                actions = {
-                    IconButton(onClick = {
-                        viewModel.loadInspections(
-                            token = authToken,
-                            vehicleId = vehicleId,
-                            inspectionType = selectedFilter
-                        )
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            tint = Color.White
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Blue600,
-                    titleContentColor = Color.White
-                )
-            )
-        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = {
@@ -103,6 +75,74 @@ fun InspectionListScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // Header with gradient and curved wave
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(96.dp)  // Height to accommodate curve
+            ) {
+                // Blue gradient background
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Blue700, Blue600)
+                            )
+                        )
+                )
+
+                // Top navigation bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(horizontal = Spacing.md),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+
+                    Text(
+                        text = "DVIR Inspections",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+
+                    IconButton(onClick = {
+                        viewModel.loadInspections(
+                            token = authToken,
+                            vehicleId = vehicleId,
+                            inspectionType = selectedFilter
+                        )
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = Color.White
+                        )
+                    }
+                }
+
+                // Curved background shape at bottom
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)  // Height of the curved section
+                        .align(Alignment.BottomCenter)
+                        .clip(CurvedWaveShape())
+                        .background(SecondaryBackground)
+                )
+            }
+
             // Filter chips
             Card(
                 modifier = Modifier

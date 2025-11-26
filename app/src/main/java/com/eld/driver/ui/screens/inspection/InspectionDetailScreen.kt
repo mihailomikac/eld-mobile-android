@@ -53,20 +53,29 @@ fun InspectionDetailScreen(
             .background(SecondaryBackground)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header with gradient (56dp height)
+            // Header with gradient and curved wave
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Blue700, Blue600)
-                        )
-                    )
+                    .height(96.dp)  // Increased height to accommodate curve
             ) {
+                // Blue gradient background
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Blue700, Blue600)
+                            )
+                        )
+                )
+
+                // Top navigation bar
                 Row(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .height(56.dp)
                         .padding(horizontal = Spacing.lg),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -88,31 +97,17 @@ fun InspectionDetailScreen(
                     )
 
                     // Placeholder for symmetry
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = null,
-                        tint = Color.Transparent,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Spacer(modifier = Modifier.size(48.dp))
                 }
-            }
 
-            // Curved wave transition (30dp height)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(30.dp)
-            ) {
+                // Curved white shape at bottom
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(Blue600)
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .height(40.dp)  // Height of the curved section
+                        .align(Alignment.BottomCenter)
                         .clip(CurvedWaveShape())
-                        .background(Color.White)
+                        .background(SecondaryBackground)
                 )
             }
 
@@ -164,8 +159,8 @@ fun InspectionDetailScreen(
     if (showVerifyConfirmation) {
         AlertDialog(
             onDismissRequest = { showVerifyConfirmation = false },
-            title = { Text("Verify Inspection") },
-            text = { Text("Are you sure you want to verify this inspection? This action cannot be undone.") },
+            title = { Text("Verify Inspection", color = TextPrimary) },
+            text = { Text("Are you sure you want to verify this inspection? This action cannot be undone.", color = TextPrimary) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -179,7 +174,7 @@ fun InspectionDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showVerifyConfirmation = false }) {
-                    Text("Cancel")
+                    Text("Cancel", color = TextSecondary)
                 }
             }
         )
@@ -318,14 +313,16 @@ fun InspectionInfoCard(inspection: Inspection) {
                             "POST-TRIP INSPECTION",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        color = TextSecondary
                     )
 
                     Text(
                         text = "Inspection #${inspection.id}",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        fontSize = 18.sp,
+                        color = TextPrimary
                     )
 
                     // Status badge
@@ -461,6 +458,7 @@ fun DefectsCard(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
+                    color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
 
@@ -523,7 +521,8 @@ fun DefectsCard(
                             text = defect.defect,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
+                            color = TextPrimary
                         )
 
                         // Comment (if any)
@@ -602,7 +601,8 @@ fun NotesCard(notes: String) {
                     text = "Notes",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 16.sp,
+                    color = TextPrimary
                 )
             }
 
@@ -612,6 +612,7 @@ fun NotesCard(notes: String) {
                 text = notes,
                 style = MaterialTheme.typography.bodyMedium,
                 fontSize = 14.sp,
+                color = TextPrimary,
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFFF3F4F6), RoundedCornerShape(8.dp))
@@ -700,7 +701,8 @@ fun VerifiedStatusCard(verifiedOn: String) {
                     text = "Inspection Verified",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 16.sp,
+                    color = TextPrimary
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

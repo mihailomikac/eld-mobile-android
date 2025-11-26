@@ -20,22 +20,24 @@ class CurvedWaveShape : Shape {
         density: Density
     ): Outline {
         val path = Path().apply {
-            // Start from top-left
+            // Start from top-left corner
             moveTo(0f, 0f)
 
-            // Create smooth curve using cubic bezier
-            cubicTo(
-                x1 = size.width * 0.3f,
-                y1 = size.height * 1.2f,
-                x2 = size.width * 0.7f,
-                y2 = size.height * 1.2f,
-                x3 = size.width,
-                y3 = 0f
+            // Create smooth downward curve from left to right (valley/dip effect)
+            // Control point pushed DOWN to create concave curve
+            quadraticBezierTo(
+                x1 = size.width / 2f,      // Control point at horizontal center
+                y1 = size.height,           // Control point at bottom (creates dip)
+                x2 = size.width,            // End at top-right
+                y2 = 0f
             )
 
-            // Complete the shape
+            // Draw down to bottom-right
             lineTo(size.width, size.height)
+
+            // Draw to bottom-left
             lineTo(0f, size.height)
+
             close()
         }
 

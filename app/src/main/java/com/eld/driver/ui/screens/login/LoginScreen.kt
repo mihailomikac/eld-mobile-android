@@ -7,12 +7,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -28,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.eld.driver.ui.components.CurvedWaveShape
 import com.eld.driver.ui.theme.*
 
 /**
@@ -63,26 +66,36 @@ fun LoginScreen(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Blue gradient header
+            // Blue gradient header with curved bottom
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Blue700, Blue600)
-                        )
-                    ),
-                contentAlignment = Alignment.Center
+                    .height(280.dp)  // Increased height for logo area
             ) {
+                // Blue gradient background
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Blue700, Blue600)
+                            )
+                        )
+                )
+
+                // Logo and branding - centered
                 Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 60.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    // Logo placeholder - replace with actual logo
+                    // Truck icon
                     Icon(
-                        painter = painterResource(id = android.R.drawable.ic_menu_my_calendar),
-                        contentDescription = "ELD Logo",
+                        imageVector = Icons.Default.LocalShipping,
+                        contentDescription = "ELDMATE Logo",
                         modifier = Modifier.size(80.dp),
                         tint = Color.White
                     )
@@ -90,64 +103,72 @@ fun LoginScreen(
                     Spacer(modifier = Modifier.height(Spacing.md))
 
                     Text(
-                        text = "ELD Driver",
-                        style = MaterialTheme.typography.headlineMedium,
+                        text = "eldmate",
+                        style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-
-                    Text(
-                        text = "Electronic Logging Device",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.9f)
+                        color = Color.White,
+                        fontSize = 42.sp,
+                        letterSpacing = 1.sp
                     )
                 }
+
+                // Curved white shape at bottom
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)  // Height of the curved section
+                        .align(Alignment.BottomCenter)
+                        .clip(CurvedWaveShape())
+                        .background(SecondaryBackground)
+                )
             }
 
             // Login form
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = Spacing.xl, vertical = Spacing.xl),
+                    .padding(horizontal = 32.dp, vertical = Spacing.xl),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(Spacing.xl))
+                Spacer(modifier = Modifier.height(Spacing.md))
 
                 // Welcome text
                 Text(
-                    text = "Welcome Back",
-                    style = MaterialTheme.typography.headlineSmall,
+                    text = "Welcome",
+                    style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-
-                Text(
-                    text = "Sign in to continue",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    color = TextPrimary,
+                    fontSize = 36.sp
                 )
 
                 Spacer(modifier = Modifier.height(Spacing.xxl))
 
-                // Username field
+                // Email field
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it },
-                    label = { Text("Username") },
+                    placeholder = { Text("Email", color = TextSecondary) },
                     modifier = Modifier
                         .fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Text,
+                        keyboardType = KeyboardType.Email,
                         imeAction = ImeAction.Next
                     ),
                     keyboardActions = KeyboardActions(
                         onNext = { passwordFocusRequester.requestFocus() }
                     ),
-                    shape = RoundedCornerShape(CornerRadius.medium),
+                    shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Blue600,
-                        unfocusedBorderColor = Color.Gray.copy(alpha = 0.3f)
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        unfocusedContainerColor = BackgroundLight,
+                        focusedContainerColor = BackgroundLight,
+                        focusedBorderColor = BorderLight,
+                        unfocusedBorderColor = BorderLight,
+                        cursorColor = Blue600,
+                        focusedPlaceholderColor = TextSecondary,
+                        unfocusedPlaceholderColor = TextSecondary
                     )
                 )
 
@@ -157,7 +178,7 @@ fun LoginScreen(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Password") },
+                    placeholder = { Text("Password", color = TextSecondary) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(passwordFocusRequester),
@@ -187,38 +208,54 @@ fun LoginScreen(
                                 contentDescription = if (passwordVisible)
                                     "Hide password"
                                 else
-                                    "Show password"
+                                    "Show password",
+                                tint = TextSecondary
                             )
                         }
                     },
-                    shape = RoundedCornerShape(CornerRadius.medium),
+                    shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Blue600,
-                        unfocusedBorderColor = Color.Gray.copy(alpha = 0.3f)
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        unfocusedContainerColor = BackgroundLight,
+                        focusedContainerColor = BackgroundLight,
+                        focusedBorderColor = BorderLight,
+                        unfocusedBorderColor = BorderLight,
+                        cursorColor = Blue600,
+                        focusedPlaceholderColor = TextSecondary,
+                        unfocusedPlaceholderColor = TextSecondary
                     )
                 )
 
-                Spacer(modifier = Modifier.height(Spacing.xxl))
+                Spacer(modifier = Modifier.height(Spacing.md))
 
-                // Error message
-                if (uiState is LoginUiState.Error) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = AccentRed.copy(alpha = 0.1f)
-                        ),
-                        shape = RoundedCornerShape(CornerRadius.medium)
-                    ) {
+                // Forgot password link
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { /* TODO: Forgot password */ }) {
                         Text(
-                            text = (uiState as LoginUiState.Error).message,
-                            modifier = Modifier.padding(Spacing.md),
-                            color = AccentRed,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center
+                            text = "Forgot your password?",
+                            color = Blue600,
+                            style = MaterialTheme.typography.bodyMedium
                         )
                     }
-                    Spacer(modifier = Modifier.height(Spacing.lg))
                 }
+
+                // Error message (if any)
+                if (uiState is LoginUiState.Error) {
+                    Spacer(modifier = Modifier.height(Spacing.md))
+                    Text(
+                        text = (uiState as LoginUiState.Error).message,
+                        modifier = Modifier.fillMaxWidth(),
+                        color = AccentRed,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(Spacing.xxl))
 
                 // Login button
                 Button(
@@ -233,10 +270,14 @@ fun LoginScreen(
                     enabled = username.isNotBlank() &&
                              password.isNotBlank() &&
                              uiState !is LoginUiState.Loading,
-                    shape = RoundedCornerShape(CornerRadius.medium),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Blue600,
                         disabledContainerColor = Blue600.copy(alpha = 0.5f)
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 0.dp,
+                        pressedElevation = 0.dp
                     )
                 ) {
                     if (uiState is LoginUiState.Loading) {
@@ -247,22 +288,27 @@ fun LoginScreen(
                         )
                     } else {
                         Text(
-                            text = "Sign In",
+                            text = "Log In",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 18.sp
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // Version info
-                Text(
-                    text = "Version 1.0.0",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                    textAlign = TextAlign.Center
-                )
+                // Website link
+                TextButton(onClick = { /* TODO: Open website */ }) {
+                    Text(
+                        text = "eldmate.cloud",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Blue600,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(Spacing.md))
             }
         }
     }

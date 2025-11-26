@@ -43,20 +43,29 @@ fun LogsScreen(navController: NavController, authToken: String) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Blue gradient header (56dp)
+            // Header with gradient and curved wave
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Blue700, Blue600)
-                        )
-                    )
+                    .height(96.dp)  // Increased height to accommodate curve
             ) {
+                // Blue gradient background
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Blue700, Blue600)
+                            )
+                        )
+                )
+
+                // Top navigation bar
                 Row(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .height(56.dp)
                         .padding(horizontal = Spacing.md),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -87,16 +96,17 @@ fun LogsScreen(navController: NavController, authToken: String) {
                         )
                     }
                 }
-            }
 
-            // Curved wave transition (30dp height)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(30.dp)
-                    .clip(CurvedWaveShape())
-                    .background(Blue600)
-            )
+                // Curved background shape at bottom
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)  // Height of the curved section
+                        .align(Alignment.BottomCenter)
+                        .clip(CurvedWaveShape())
+                        .background(BgSecondary)
+                )
+            }
 
             // Content
             Box(

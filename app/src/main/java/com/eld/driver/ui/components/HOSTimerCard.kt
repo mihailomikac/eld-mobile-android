@@ -49,77 +49,74 @@ fun HOSTimerCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // Circular timer
+        // Circular timer with double ring effect
         Box(
-            modifier = Modifier.size(155.dp),
+            modifier = Modifier.size(165.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Background circle
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val strokeWidth = 10.dp.toPx()
+                val outerStrokeWidth = 20.dp.toPx()  // Outer ring thickness
+                val innerStrokeWidth = 4.dp.toPx()   // Inner white ring thickness
+                val gapWidth = 3.dp.toPx()           // Gap between rings
 
-                // Background arc (gray)
-                drawArc(
-                    color = BorderLight,
-                    startAngle = -90f,
-                    sweepAngle = 360f,
-                    useCenter = false,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-                    size = androidx.compose.ui.geometry.Size(
-                        width = size.width - strokeWidth,
-                        height = size.height - strokeWidth
-                    ),
-                    topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
+                // Outer blue ring (full circle)
+                drawCircle(
+                    color = Blue600,
+                    radius = (size.width / 2f) - (outerStrokeWidth / 2f),
+                    style = Stroke(width = outerStrokeWidth)
                 )
 
-                // Progress arc (blue - matches iOS accentPrimary)
-                if (animatedProgress > 0f) {
-                    drawArc(
-                        color = Blue600,
-                        startAngle = -90f,
-                        sweepAngle = 360f * animatedProgress,
-                        useCenter = false,
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-                        size = androidx.compose.ui.geometry.Size(
-                            width = size.width - strokeWidth,
-                            height = size.height - strokeWidth
-                        ),
-                        topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
-                    )
-                }
+                // Inner white ring (creates the double border effect)
+                drawCircle(
+                    color = Color.White,
+                    radius = (size.width / 2f) - outerStrokeWidth - gapWidth - (innerStrokeWidth / 2f),
+                    style = Stroke(width = innerStrokeWidth)
+                )
+
+                // White background inside
+                drawCircle(
+                    color = Color.White,
+                    radius = (size.width / 2f) - outerStrokeWidth - gapWidth - innerStrokeWidth
+                )
             }
 
-            // Time text and icon in center
+            // Time text and label in center
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.Center
             ) {
+                // Time (larger, blue)
                 Text(
                     text = formatTime(remainingMinutes),
-                    fontSize = 32.sp,
+                    fontSize = 36.sp,  // Increased from 32sp
                     fontWeight = FontWeight.Bold,
-                    color = Blue600
+                    color = Blue600,
+                    letterSpacing = 0.sp
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // Label (BREAK, DRIVE, etc.)
+                Text(
+                    text = title,
+                    fontSize = 18.sp,  // Increased from 16sp
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    letterSpacing = 0.5.sp
                 )
 
                 // Clock icon (only for SHIFT and CYCLE)
                 if (showClockIcon) {
+                    Spacer(modifier = Modifier.height(4.dp))
                     Icon(
                         imageVector = Icons.Default.Schedule,
                         contentDescription = null,
-                        tint = Color.Gray.copy(alpha = 0.5f),
-                        modifier = Modifier.size(18.dp)
+                        tint = Color.Gray.copy(alpha = 0.4f),
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
         }
-
-        // Label
-        Text(
-            text = title,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
-        )
     }
 }
 

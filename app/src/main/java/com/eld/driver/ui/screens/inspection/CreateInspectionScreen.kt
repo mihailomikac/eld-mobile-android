@@ -78,20 +78,29 @@ fun CreateInspectionScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
+            // Header with gradient and curved wave
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Blue700, Blue600)
-                        )
-                    )
+                    .height(96.dp)  // Increased height to accommodate curve
             ) {
+                // Blue gradient background
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Blue700, Blue600)
+                            )
+                        )
+                )
+
+                // Top navigation bar
                 Row(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .height(56.dp)
                         .padding(horizontal = Spacing.md),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -112,18 +121,19 @@ fun CreateInspectionScreen(
                     )
 
                     // Placeholder for symmetry
-                    Box(modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.size(48.dp))
                 }
-            }
 
-            // Curved wave transition
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(30.dp)
-                    .clip(CurvedWaveShape())
-                    .background(Blue600)
-            )
+                // Curved background shape at bottom
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)  // Height of the curved section
+                        .align(Alignment.BottomCenter)
+                        .clip(CurvedWaveShape())
+                        .background(BgSecondary)
+                )
+            }
 
             // Content
             LazyColumn(
@@ -704,10 +714,15 @@ private fun NotesSection(notes: String, onNotesChanged: (String) -> Unit) {
                     .fillMaxWidth()
                     .height(100.dp),
                 colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
                     unfocusedContainerColor = BackgroundLight,
                     focusedContainerColor = BackgroundLight,
                     unfocusedBorderColor = Color.Transparent,
-                    focusedBorderColor = Blue600
+                    focusedBorderColor = Blue600,
+                    cursorColor = Blue600,
+                    focusedPlaceholderColor = TextSecondary,
+                    unfocusedPlaceholderColor = TextSecondary
                 ),
                 shape = RoundedCornerShape(CornerRadius.small)
             )

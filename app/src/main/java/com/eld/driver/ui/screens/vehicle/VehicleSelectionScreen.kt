@@ -107,8 +107,15 @@ fun VehicleSelectionScreen(
                     },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
                         focusedBorderColor = Blue600,
-                        unfocusedBorderColor = Color.Gray.copy(alpha = 0.3f)
+                        unfocusedBorderColor = Color.Gray.copy(alpha = 0.3f),
+                        focusedLabelColor = Blue600,
+                        unfocusedLabelColor = TextSecondary,
+                        cursorColor = Blue600,
+                        focusedPlaceholderColor = TextSecondary,
+                        unfocusedPlaceholderColor = TextSecondary
                     ),
                     shape = RoundedCornerShape(CornerRadius.medium)
                 )

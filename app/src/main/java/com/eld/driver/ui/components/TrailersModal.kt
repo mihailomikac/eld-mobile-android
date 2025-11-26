@@ -55,10 +55,15 @@ fun TrailersModal(
                     onValueChange = { trailers = it },
                     placeholder = { Text("Trailers", color = TextSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
                         unfocusedContainerColor = BackgroundLight,
                         focusedContainerColor = BackgroundLight,
                         unfocusedBorderColor = Color.Transparent,
-                        focusedBorderColor = Blue600
+                        focusedBorderColor = Blue600,
+                        cursorColor = Blue600,
+                        focusedPlaceholderColor = TextSecondary,
+                        unfocusedPlaceholderColor = TextSecondary
                     ),
                     shape = RoundedCornerShape(CornerRadius.medium),
                     modifier = Modifier.fillMaxWidth()
@@ -72,10 +77,15 @@ fun TrailersModal(
                     onValueChange = { shippingDocs = it },
                     placeholder = { Text("Shipping Docs", color = TextSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
                         unfocusedContainerColor = BackgroundLight,
                         focusedContainerColor = BackgroundLight,
                         unfocusedBorderColor = Color.Transparent,
-                        focusedBorderColor = Blue600
+                        focusedBorderColor = Blue600,
+                        cursorColor = Blue600,
+                        focusedPlaceholderColor = TextSecondary,
+                        unfocusedPlaceholderColor = TextSecondary
                     ),
                     shape = RoundedCornerShape(CornerRadius.medium),
                     modifier = Modifier.fillMaxWidth()
