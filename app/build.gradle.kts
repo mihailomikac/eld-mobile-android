@@ -54,6 +54,10 @@ android {
 }
 
 dependencies {
+    // Geometris wqlib - Official SDK from JitPack (trying 1.0.10)
+    implementation("com.github.geometris:GeometrisMobile:1.0.10")
+    implementation("joda-time:joda-time:2.12.5")
+
     // Core Android
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")

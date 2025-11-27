@@ -17,6 +17,7 @@ import com.eld.driver.ui.screens.logs.LogsScreen
 import com.eld.driver.ui.screens.vehicle.VehicleConfirmationScreen
 import com.eld.driver.ui.screens.vehicle.VehicleSelectionScreen
 import com.eld.driver.ui.screens.vehicle.VehicleViewModel
+import com.eld.driver.ui.screens.bletest.BleTestScreen
 
 /**
  * Main app composable
@@ -115,6 +116,11 @@ fun ELDApp() {
         // Log Detail screen
         composable("log_detail/{logId}") { backStackEntry ->
             // TODO: LogDetailScreen
+        }
+
+        // BLE Test screen
+        composable("ble_test") {
+            BleTestScreen(navController = navController)
         }
     }
 }

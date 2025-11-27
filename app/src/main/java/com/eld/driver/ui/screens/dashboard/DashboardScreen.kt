@@ -79,8 +79,8 @@ fun DashboardScreen(
         else -> "Loading..."
     }
 
-    // TODO: Get from vehicle/device status
-    val eldConnection = ELDConnectionStatus.DISCONNECTED
+    // Get ELD connection status from ViewModel
+    val eldConnection by dashboardViewModel.eldConnectionStatus.collectAsState()
     val notificationCount = 5
 
     ModalNavigationDrawer(
@@ -235,7 +235,13 @@ fun DashboardScreen(
                 VehicleConnectionCard(
                     vehicleNumber = currentVehicle?.vehicleNumber ?: "No Vehicle",
                     connectionStatus = eldConnection,
-                    onClick = { /* TODO: Handle connection tap */ },
+                    onClick = {
+                        when (eldConnection) {
+                            ELDConnectionStatus.DISCONNECTED -> dashboardViewModel.connectToELD()
+                            ELDConnectionStatus.CONNECTED -> dashboardViewModel.disconnectFromELD()
+                            ELDConnectionStatus.PAIRING -> { /* Do nothing while pairing */ }
+                        }
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .height(75.dp)  // Reduced from 90dp to 75dp for more compact design
@@ -256,6 +262,107 @@ fun DashboardScreen(
                     cycleTimeRemaining = hos.cycleTimeRemaining,
                     cycleTimeTotal = hos.cycleTimeTotal
                 )
+            }
+
+            Spacer(modifier = Modifier.height(Spacing.xl))
+
+            // Debug Logs Section
+            val debugLogs by dashboardViewModel.debugLogs.collectAsState()
+            var showDebugLogsDialog by remember { mutableStateOf(false) }
+
+            if (debugLogs.isNotEmpty()) {
+                Button(
+                    onClick = { showDebugLogsDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF3B82F6)
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.BugReport,
+                        contentDescription = "Debug Logs",
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("View Debug Logs (${debugLogs.size})")
+                }
+            }
+
+            // Debug Logs Full Screen Dialog
+            if (showDebugLogsDialog) {
+                androidx.compose.ui.window.Dialog(
+                    onDismissRequest = { showDebugLogsDialog = false },
+                    properties = androidx.compose.ui.window.DialogProperties(
+                        usePlatformDefaultWidth = false
+                    )
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = Color(0xFF1E1E1E)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            // Header
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF2D2D2D))
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🔧 Debug Logs",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                IconButton(onClick = { showDebugLogsDialog = false }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Close",
+                                        tint = Color.White
+                                    )
+                                }
+                            }
+
+                            // Logs List (scrollable)
+                            androidx.compose.foundation.lazy.LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp),
+                                reverseLayout = false
+                            ) {
+                                items(debugLogs.size) { index ->
+                                    val log = debugLogs[index]
+                                    Text(
+                                        text = log,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = when {
+                                            log.contains("❌") || log.contains("Error") -> Color(0xFFEF4444)
+                                            log.contains("✅") || log.contains("Success") -> Color(0xFF10B981)
+                                            log.contains("⚠️") || log.contains("Warning") -> Color(0xFFF59E0B)
+                                            log.contains("🔍") || log.contains("Checking") -> Color(0xFF8B5CF6)
+                                            log.contains("🔔") || log.contains("Calling") -> Color(0xFF3B82F6)
+                                            else -> Color(0xFFD1D5DB)
+                                        },
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                    )
+                                    if (index < debugLogs.size - 1) {
+                                        Divider(
+                                            color = Color(0xFF404040),
+                                            thickness = 0.5.dp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             }
         }

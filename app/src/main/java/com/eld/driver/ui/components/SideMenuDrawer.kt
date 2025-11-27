@@ -149,6 +149,15 @@ fun SideMenuDrawer(
             )
 
             DrawerMenuItem(
+                icon = Icons.Default.Bluetooth,
+                title = "BLE Test",
+                onClick = {
+                    navController.navigate("ble_test")
+                    onClose()
+                }
+            )
+
+            DrawerMenuItem(
                 icon = Icons.Default.Settings,
                 title = "Settings",
                 onClick = {

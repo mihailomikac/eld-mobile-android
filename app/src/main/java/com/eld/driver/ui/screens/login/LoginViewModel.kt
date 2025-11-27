@@ -3,6 +3,7 @@ package com.eld.driver.ui.screens.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.auth0.android.jwt.JWT
+import com.eld.driver.ELDDriverApplication
 import com.eld.driver.data.api.ApiResult
 import com.eld.driver.data.api.ApiService
 import com.eld.driver.data.models.LoginRequest
@@ -41,7 +42,11 @@ class LoginViewModel : ViewModel() {
                     if (loginResponse?.success == true) {
                         val token = loginResponse.token
                         if (token != null) {
-                            _authToken.value = "Bearer $token"
+                            val bearerToken = "Bearer $token"
+                            _authToken.value = bearerToken
+
+                            // Set global auth token for automatic duty status changes
+                            ELDDriverApplication.setAuthToken(bearerToken)
 
                             // Decode JWT and extract user info
                             val user = decodeUserFromToken(token)
@@ -105,9 +110,13 @@ class LoginViewModel : ViewModel() {
             } catch (e: Exception) {
                 println("⚠️ Failed to send logout tick event: ${e.message}")
             } finally {
+                // Clear local state
                 _authToken.value = null
                 _currentUser.value = null
                 _uiState.value = LoginUiState.Initial
+
+                // Clear global auth token
+                ELDDriverApplication.setAuthToken(null)
             }
         }
     }

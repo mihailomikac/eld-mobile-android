@@ -1,7 +1,10 @@
 package com.eld.driver.ui.screens.dashboard
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.eld.driver.ble.GeometrisWQManager
+import com.eld.driver.ble.models.BleConnectionState
 import com.eld.driver.data.api.ApiService
 import com.eld.driver.data.models.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,16 +16,116 @@ import java.util.*
 import kotlin.math.abs
 
 /**
- * DashboardViewModel - Handles dashboard data and state
+ * DashboardViewModel - Handles dashboard data and state + BLE integration
  */
-class DashboardViewModel : ViewModel() {
+class DashboardViewModel(application: Application) : AndroidViewModel(application) {
     private val apiService = ApiService.getInstance()
+
+    // BLE Manager for ELD device (singleton - shared across all screens)
+    private val bleManager = GeometrisWQManager.getInstance(application)
+
+    // TODO: Change hardcoded ELD serial to real device serial number
+    private val hardcodedEldSerial = "87A4141310908"
 
     private val _currentDutyStatus = MutableStateFlow<DutyStatusUiState>(DutyStatusUiState.Loading)
     val currentDutyStatus: StateFlow<DutyStatusUiState> = _currentDutyStatus.asStateFlow()
 
     private val _hosStatus = MutableStateFlow<HOSStatus?>(null)
     val hosStatus: StateFlow<HOSStatus?> = _hosStatus.asStateFlow()
+
+    // ELD Connection State
+    private val _eldConnectionStatus = MutableStateFlow(ELDConnectionStatus.DISCONNECTED)
+    val eldConnectionStatus: StateFlow<ELDConnectionStatus> = _eldConnectionStatus.asStateFlow()
+
+    // Debug logs for UI display
+    private val _debugLogs = MutableStateFlow<List<String>>(emptyList())
+    val debugLogs: StateFlow<List<String>> = _debugLogs.asStateFlow()
+
+    init {
+        // Periodically sync BLE manager logs to UI
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1000) // Update every second
+                val bleManagerLogs = bleManager.getDebugLogs()
+                if (bleManagerLogs.isNotEmpty()) {
+                    _debugLogs.value = bleManagerLogs
+                }
+            }
+        }
+
+        // Periodically refresh current duty status to catch automatic changes
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(5000) // Refresh every 5 seconds
+                val token = com.eld.driver.ELDDriverApplication.getAuthToken()
+                if (token != null && _eldConnectionStatus.value == ELDConnectionStatus.CONNECTED) {
+                    // Silently refresh status without showing loading state
+                    try {
+                        val response = apiService.getCurrentDutyStatus(token)
+                        if (response.isSuccessful && response.body()?.success == true && response.body()?.data != null) {
+                            _currentDutyStatus.value = DutyStatusUiState.Success(response.body()!!.data!!)
+                        }
+                    } catch (e: Exception) {
+                        // Silently fail - don't disrupt UI
+                    }
+                }
+            }
+        }
+
+        // Monitor BLE connection state
+        viewModelScope.launch {
+            bleManager.connectionState.collect { state ->
+                _eldConnectionStatus.value = when (state) {
+                    is BleConnectionState.Disconnected -> ELDConnectionStatus.DISCONNECTED
+                    is BleConnectionState.Scanning -> ELDConnectionStatus.PAIRING
+                    is BleConnectionState.Connecting -> ELDConnectionStatus.PAIRING
+                    is BleConnectionState.Connected -> ELDConnectionStatus.CONNECTED
+                    is BleConnectionState.Ready -> ELDConnectionStatus.CONNECTED
+                    else -> ELDConnectionStatus.DISCONNECTED
+                }
+
+                // Auto-connect to device with matching serial during scan
+                if (state is BleConnectionState.DeviceFound) {
+                    val deviceName = state.device.name
+                    val deviceAddress = state.device.address
+
+                    // Check if device name starts with "wq-" or "WQ-" (Geometris Whereqube devices)
+                    // OR if it contains our hardcoded serial
+                    val isWherequbeDevice = deviceName?.startsWith("wq-", ignoreCase = true) == true ||
+                                           deviceName?.startsWith("WQ-", ignoreCase = true) == true
+                    val matchesSerial = deviceName?.contains(hardcodedEldSerial, ignoreCase = true) == true ||
+                                       deviceAddress?.contains(hardcodedEldSerial, ignoreCase = true) == true
+
+                    if (isWherequbeDevice || matchesSerial) {
+                        bleManager.stopScan()
+                        bleManager.connect(state.device)
+                    }
+                }
+            }
+        }
+
+        // Note: Automatic duty status change callback is now handled globally
+        // in ELDDriverApplication class, so it works across all screens
+    }
+
+    fun connectToELD() {
+        if (!bleManager.isBluetoothEnabled()) {
+            android.util.Log.e("DashboardViewModel", "Bluetooth not enabled")
+            return
+        }
+        if (!bleManager.hasRequiredPermissions()) {
+            android.util.Log.e("DashboardViewModel", "Missing BLE permissions")
+            return
+        }
+
+        android.util.Log.d("DashboardViewModel", "Starting scan for ELD")
+        bleManager.startScan()
+    }
+
+    fun disconnectFromELD() {
+        android.util.Log.d("DashboardViewModel", "Disconnecting from ELD")
+        bleManager.disconnect()
+    }
 
     fun loadCurrentDutyStatus(token: String) {
         viewModelScope.launch {
