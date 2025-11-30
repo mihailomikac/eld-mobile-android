@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.eld.driver.ble.VehicleMotionState
 import com.eld.driver.data.models.DutyStatusType
 import com.eld.driver.data.models.ELDConnectionStatus
 import com.eld.driver.ui.components.ChangeDutyStatusModal
@@ -48,6 +49,7 @@ fun DashboardScreen(
 
     var showDutyStatusModal by remember { mutableStateOf(false) }
     var showTrailersModal by remember { mutableStateOf(false) }
+    var showLockedWhileDrivingDialog by remember { mutableStateOf(false) }
 
     // Get current user from LoginViewModel
     val currentUser by loginViewModel.currentUser.collectAsState()
@@ -83,6 +85,21 @@ fun DashboardScreen(
     val eldConnection by dashboardViewModel.eldConnectionStatus.collectAsState()
     val notificationCount = 5
 
+    // Get vehicle motion state
+    val vehicleMotionState by dashboardViewModel.vehicleMotionState.collectAsState()
+
+    // Connection lost alert state
+    val showConnectionLostAlert by dashboardViewModel.showConnectionLostAlert.collectAsState()
+    val autoRestartCountdown by dashboardViewModel.autoRestartCountdown.collectAsState()
+
+    // Stationary delay dialog state
+    val showStationaryDelayDialog by dashboardViewModel.showStationaryDelayDialog.collectAsState()
+    val stationaryDelayCountdown by dashboardViewModel.stationaryDelayCountdown.collectAsState()
+
+    // Check if app is locked (DRIVING + In Motion)
+    val isAppLocked = currentStatus == DutyStatusType.DRIVING &&
+        vehicleMotionState == VehicleMotionState.IN_MOTION
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -105,6 +122,8 @@ fun DashboardScreen(
             Column(modifier = Modifier.fillMaxWidth()) {
                 Divider(color = BorderLight, thickness = 1.dp)
                 BottomNavigationBar(
+                    isLocked = isAppLocked,
+                    onLockedClick = { showLockedWhileDrivingDialog = true },
                     onDVIRClick = { navController.navigate("inspections") },
                     onDispatchClick = { /* TODO */ },
                     onLogsClick = { navController.navigate("logs") },
@@ -146,11 +165,19 @@ fun DashboardScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Menu button (hamburger)
-                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                    // Menu button (hamburger) - locked when driving
+                    IconButton(
+                        onClick = {
+                            if (isAppLocked) {
+                                showLockedWhileDrivingDialog = true
+                            } else {
+                                scope.launch { drawerState.open() }
+                            }
+                        }
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "Menu",
+                            imageVector = if (isAppLocked) Icons.Default.Lock else Icons.Default.Menu,
+                            contentDescription = if (isAppLocked) "Locked" else "Menu",
                             tint = Color.White,
                             modifier = Modifier.size(24.dp)
                         )
@@ -221,11 +248,22 @@ fun DashboardScreen(
                     .padding(top = Spacing.md),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
             ) {
+                // Check if status change is locked (DRIVING + In Motion)
+                val isStatusLocked = currentStatus == DutyStatusType.DRIVING &&
+                    vehicleMotionState == VehicleMotionState.IN_MOTION
+
                 // Status Card
                 StatusCard(
                     status = currentStatus,
                     duration = statusDuration,
-                    onClick = { showDutyStatusModal = true },
+                    isLocked = isStatusLocked,
+                    onClick = {
+                        if (isStatusLocked) {
+                            showLockedWhileDrivingDialog = true
+                        } else {
+                            showDutyStatusModal = true
+                        }
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .height(75.dp)  // Reduced from 90dp to 75dp for more compact design
@@ -248,6 +286,16 @@ fun DashboardScreen(
                 )
             }
 
+            // In Motion / Stationary Banner (only show when in DRIVING status)
+            if (currentStatus == DutyStatusType.DRIVING) {
+                Spacer(modifier = Modifier.height(Spacing.md))
+                MotionStatusBanner(
+                    motionState = vehicleMotionState,
+                    isEldConnected = eldConnection == ELDConnectionStatus.CONNECTED,
+                    modifier = Modifier.padding(horizontal = Spacing.md)
+                )
+            }
+
             Spacer(modifier = Modifier.height(Spacing.xl))
 
             // HOS Timers Section
@@ -264,7 +312,7 @@ fun DashboardScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(Spacing.xl))
+            Spacer(modifier = Modifier.height(Spacing.md))
 
             // Debug Logs Section
             val debugLogs by dashboardViewModel.debugLogs.collectAsState()
@@ -371,6 +419,9 @@ fun DashboardScreen(
 
     // Show modals when state is true
     if (showDutyStatusModal) {
+        // Get current location when modal opens
+        val currentLocation = remember { dashboardViewModel.getCurrentLocation() }
+
         ChangeDutyStatusModal(
             currentStatus = when (currentStatus) {
                 DutyStatusType.OFF_DUTY -> "OFF_DUTY"
@@ -380,7 +431,11 @@ fun DashboardScreen(
                 DutyStatusType.PERSONAL_CONVEYANCE -> "PERSONAL_CONVEYANCE"
                 DutyStatusType.YARD_MOVE -> "YARD_MOVE"
             },
+            initialLocation = currentLocation?.address,
             onDismiss = { showDutyStatusModal = false },
+            onRefreshLocation = {
+                dashboardViewModel.refreshLocation()
+            },
             onConfirm = { status, location, notes ->
                 // Call API to change duty status
                 val newStatus = when (status) {
@@ -397,7 +452,8 @@ fun DashboardScreen(
                     token = authToken,
                     newStatus = newStatus,
                     location = location.ifBlank { null },
-                    notes = notes.ifBlank { null }
+                    notes = notes.ifBlank { null },
+                    vehicleId = currentVehicleId
                 ) {
                     showDutyStatusModal = false
                 }
@@ -417,6 +473,290 @@ fun DashboardScreen(
             }
         )
     }
+
+    // Connection Lost While Driving Dialog
+    if (showConnectionLostAlert) {
+        ConnectionLostDialog(
+            countdown = autoRestartCountdown,
+            onDismiss = { dashboardViewModel.dismissConnectionLostAlert() },
+            onReconnect = {
+                dashboardViewModel.dismissConnectionLostAlert()
+                dashboardViewModel.connectToELD()
+            }
+        )
+    }
+
+    // Locked While Driving Dialog
+    if (showLockedWhileDrivingDialog) {
+        AlertDialog(
+            onDismissRequest = { showLockedWhileDrivingDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = AccentRed,
+                    modifier = Modifier.size(48.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Status Locked",
+                    fontWeight = FontWeight.Bold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            },
+            text = {
+                Text(
+                    text = "You cannot change your duty status while the vehicle is in motion.\n\nPlease bring the vehicle to a complete stop (below 5 mph) to change your status.",
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showLockedWhileDrivingDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Blue600)
+                ) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    // Stationary Delay Dialog (60 sec countdown after 5 min idle)
+    if (showStationaryDelayDialog) {
+        StationaryDelayDialog(
+            countdown = stationaryDelayCountdown ?: 60,
+            currentStatus = currentStatus,
+            onStayDriving = { dashboardViewModel.stayDriving() },
+            onGoOnDuty = { dashboardViewModel.goOnDuty() }
+        )
+    }
+}
+
+/**
+ * Stationary Delay Dialog - Shown after 5 minutes stationary
+ * Has 60 second countdown, "Stay Driving" and "Go On Duty" buttons
+ */
+@Composable
+private fun StationaryDelayDialog(
+    countdown: Int,
+    currentStatus: DutyStatusType,
+    onStayDriving: () -> Unit,
+    onGoOnDuty: () -> Unit
+) {
+    // Determine button text based on current status
+    val stayButtonText = when (currentStatus) {
+        DutyStatusType.PERSONAL_CONVEYANCE -> "Stay in PC"
+        DutyStatusType.YARD_MOVE -> "Stay in YM"
+        else -> "Stay Driving"
+    }
+
+    AlertDialog(
+        onDismissRequest = { /* Cannot dismiss by tapping outside */ },
+        icon = {
+            // Countdown circle
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(AccentOrange),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "$countdown",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+        },
+        title = {
+            Text(
+                text = "Vehicle Stationary",
+                fontWeight = FontWeight.Bold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Your vehicle has been stationary for 5 minutes.",
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(Spacing.sm))
+
+                Text(
+                    text = "Status will change to On Duty in $countdown seconds.",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onGoOnDuty,
+                colors = ButtonDefaults.buttonColors(containerColor = Blue600)
+            ) {
+                Text("Go On Duty")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = onStayDriving
+            ) {
+                Text(stayButtonText)
+            }
+        }
+    )
+}
+
+/**
+ * Motion Status Banner - Shows In Motion / Stationary with padlock
+ */
+@Composable
+private fun MotionStatusBanner(
+    motionState: VehicleMotionState,
+    isEldConnected: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    val isInMotion = motionState == VehicleMotionState.IN_MOTION
+
+    // Colors per spec: Green for In Motion, Orange for Stationary
+    val backgroundColor = when {
+        isInMotion -> AccentGreen        // Green when in motion
+        else -> AccentOrange             // Orange for stationary (per Case #10)
+    }
+
+    val statusText = when {
+        !isEldConnected -> "Stationary (No ELD)"
+        isInMotion -> "In Motion"
+        else -> "Stationary"
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        shape = RoundedCornerShape(CornerRadius.medium)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Padlock icon (locked when stationary, unlocked when in motion)
+            Icon(
+                imageVector = if (isInMotion && isEldConnected) Icons.Default.LockOpen else Icons.Default.Lock,
+                contentDescription = if (isInMotion) "Unlocked" else "Locked",
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+
+            Spacer(modifier = Modifier.width(Spacing.sm))
+
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
+    }
+}
+
+/**
+ * Connection Lost Dialog with countdown
+ */
+@Composable
+private fun ConnectionLostDialog(
+    countdown: Int?,
+    onDismiss: () -> Unit,
+    onReconnect: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = AccentRed,
+                modifier = Modifier.size(48.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "Connection Lost",
+                fontWeight = FontWeight.Bold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "ELD connection was lost while vehicle was in motion.",
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(Spacing.md))
+
+                Text(
+                    text = "Vehicle status changed to STATIONARY",
+                    color = AccentRed,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+
+                if (countdown != null) {
+                    Spacer(modifier = Modifier.height(Spacing.md))
+
+                    // Countdown circle
+                    Box(
+                        modifier = Modifier
+                            .size(60.dp)
+                            .clip(CircleShape)
+                            .background(Blue600),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "$countdown",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(Spacing.sm))
+
+                    Text(
+                        text = "Auto-reconnect in $countdown seconds",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onReconnect,
+                colors = ButtonDefaults.buttonColors(containerColor = Blue600)
+            ) {
+                Text("Reconnect Now")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Dismiss")
+            }
+        }
+    )
 }
 
 /**
@@ -426,6 +766,7 @@ fun DashboardScreen(
 private fun StatusCard(
     status: DutyStatusType,
     duration: String,
+    isLocked: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -450,26 +791,49 @@ private fun StatusCard(
                     .background(getStatusColor(status)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = status.shortName,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp  // Reduced from 16sp to 14sp
-                )
+                if (isLocked) {
+                    // Show lock icon when driving and in motion
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Locked",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else {
+                    Text(
+                        text = status.shortName,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp  // Reduced from 16sp to 14sp
+                    )
+                }
             }
 
             // Text content
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {  // Reduced from 4dp to 2dp
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = status.displayName,
+                        style = MaterialTheme.typography.bodyMedium,  // Changed from bodyLarge to bodyMedium
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    if (isLocked) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Locked",
+                            tint = AccentRed,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
                 Text(
-                    text = status.displayName,
-                    style = MaterialTheme.typography.bodyMedium,  // Changed from bodyLarge to bodyMedium
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = duration,
+                    text = if (isLocked) "Stop to change" else duration,
                     style = MaterialTheme.typography.bodySmall,  // Changed from bodyMedium to bodySmall
-                    color = TextSecondary
+                    color = if (isLocked) AccentRed else TextSecondary
                 )
             }
         }
@@ -570,6 +934,8 @@ private fun VehicleConnectionCard(
  */
 @Composable
 private fun BottomNavigationBar(
+    isLocked: Boolean = false,
+    onLockedClick: () -> Unit = {},
     onDVIRClick: () -> Unit,
     onDispatchClick: () -> Unit,
     onLogsClick: () -> Unit,
@@ -579,7 +945,7 @@ private fun BottomNavigationBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
+            .background(if (isLocked) Color(0xFFE5E7EB) else Color.White)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -587,7 +953,8 @@ private fun BottomNavigationBar(
             icon = Icons.Default.VerifiedUser, // checkmark.shield equivalent
             label = "DVIR",
             badgeCount = null,
-            onClick = onDVIRClick,
+            isLocked = isLocked,
+            onClick = if (isLocked) onLockedClick else onDVIRClick,
             modifier = Modifier.weight(1f)
         )
 
@@ -595,25 +962,28 @@ private fun BottomNavigationBar(
             icon = Icons.Default.Headset,
             label = "Dispatch",
             badgeCount = null,
-            onClick = onDispatchClick,
+            isLocked = isLocked,
+            onClick = if (isLocked) onLockedClick else onDispatchClick,
             modifier = Modifier.weight(1f)
         )
 
         BottomNavButton(
             icon = Icons.Default.ShowChart, // chart.line.uptrend.xyaxis equivalent
             label = "Logs",
-            badgeCount = 1,
+            badgeCount = if (isLocked) null else 1,
             badgeColor = AccentRed,
-            onClick = onLogsClick,
+            isLocked = isLocked,
+            onClick = if (isLocked) onLockedClick else onLogsClick,
             modifier = Modifier.weight(1f)
         )
 
         BottomNavButton(
             icon = Icons.Default.LocalShipping, // truck.box equivalent
             label = "Trailer/Docs",
-            badgeCount = 1,
+            badgeCount = if (isLocked) null else 1,
             badgeColor = AccentOrange,
-            onClick = onTrailerDocsClick,
+            isLocked = isLocked,
+            onClick = if (isLocked) onLockedClick else onTrailerDocsClick,
             modifier = Modifier.weight(1f)
         )
 
@@ -621,7 +991,8 @@ private fun BottomNavigationBar(
             icon = Icons.Default.People, // person.2 equivalent
             label = "Co-Drivers",
             badgeCount = null,
-            onClick = onCoDriversClick,
+            isLocked = isLocked,
+            onClick = if (isLocked) onLockedClick else onCoDriversClick,
             modifier = Modifier.weight(1f)
         )
     }
@@ -636,17 +1007,21 @@ private fun BottomNavButton(
     label: String,
     badgeCount: Int?,
     badgeColor: Color = AccentRed,
+    isLocked: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val buttonColor = if (isLocked) Color(0xFFE5E7EB) else Color.White
+    val contentColor = if (isLocked) Color(0xFF9CA3AF) else TextPrimary
+
     Button(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
             .height(70.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color.White,
-            contentColor = TextPrimary
+            containerColor = buttonColor,
+            contentColor = contentColor
         ),
         shape = RoundedCornerShape(CornerRadius.small),
         contentPadding = PaddingValues(vertical = 10.dp, horizontal = 4.dp),
@@ -661,13 +1036,13 @@ private fun BottomNavButton(
         ) {
             Box {
                 Icon(
-                    imageVector = icon,
+                    imageVector = if (isLocked) Icons.Default.Lock else icon,
                     contentDescription = label,
-                    tint = TextPrimary,
+                    tint = contentColor,
                     modifier = Modifier.size(24.dp)
                 )
 
-                if (badgeCount != null) {
+                if (badgeCount != null && !isLocked) {
                     Box(
                         modifier = Modifier
                             .size(20.dp)
@@ -690,7 +1065,7 @@ private fun BottomNavButton(
             Text(
                 text = label,
                 fontSize = 11.sp,
-                color = TextPrimary,
+                color = contentColor,
                 maxLines = 1
             )
         }

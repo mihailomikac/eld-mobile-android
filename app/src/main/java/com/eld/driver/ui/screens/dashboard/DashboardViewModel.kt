@@ -4,9 +4,12 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.eld.driver.ble.GeometrisWQManager
+import com.eld.driver.ble.VehicleMotionState
 import com.eld.driver.ble.models.BleConnectionState
 import com.eld.driver.data.api.ApiService
 import com.eld.driver.data.models.*
+import com.eld.driver.location.LocationService
+import com.eld.driver.location.LocationData
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +27,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     // BLE Manager for ELD device (singleton - shared across all screens)
     private val bleManager = GeometrisWQManager.getInstance(application)
 
+    // Location Service for GPS + BLE location
+    private val locationService = LocationService.getInstance(application)
+
     // TODO: Change hardcoded ELD serial to real device serial number
     private val hardcodedEldSerial = "87A4141310908"
 
@@ -40,6 +46,28 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     // Debug logs for UI display
     private val _debugLogs = MutableStateFlow<List<String>>(emptyList())
     val debugLogs: StateFlow<List<String>> = _debugLogs.asStateFlow()
+
+    // Vehicle motion state (In Motion / Stationary)
+    val vehicleMotionState: StateFlow<VehicleMotionState> = bleManager.vehicleMotionState
+
+    // Connection lost while driving alert
+    private val _showConnectionLostAlert = MutableStateFlow(false)
+    val showConnectionLostAlert: StateFlow<Boolean> = _showConnectionLostAlert.asStateFlow()
+
+    // Auto-restart scan countdown
+    private val _autoRestartCountdown = MutableStateFlow<Int?>(null)
+    val autoRestartCountdown: StateFlow<Int?> = _autoRestartCountdown.asStateFlow()
+
+    // Status change error/success message for UI display
+    private val _statusChangeMessage = MutableStateFlow<String?>(null)
+    val statusChangeMessage: StateFlow<String?> = _statusChangeMessage.asStateFlow()
+
+    // Stationary delay dialog (60 sec countdown after 5 min idle)
+    private val _showStationaryDelayDialog = MutableStateFlow(false)
+    val showStationaryDelayDialog: StateFlow<Boolean> = _showStationaryDelayDialog.asStateFlow()
+
+    private val _stationaryDelayCountdown = MutableStateFlow<Int?>(null)
+    val stationaryDelayCountdown: StateFlow<Int?> = _stationaryDelayCountdown.asStateFlow()
 
     init {
         // Periodically sync BLE manager logs to UI
@@ -106,6 +134,165 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
         // Note: Automatic duty status change callback is now handled globally
         // in ELDDriverApplication class, so it works across all screens
+
+        // Handle connection lost while driving
+        bleManager.onConnectionLostWhileDriving = {
+            android.util.Log.d("DashboardViewModel", "🚨 Connection lost while driving!")
+            _showConnectionLostAlert.value = true
+
+            // Play sound alert
+            playConnectionLostSound()
+
+            // Start auto-restart countdown
+            startAutoRestartCountdown()
+        }
+
+        // Handle 5-minute stationary delay dialog
+        bleManager.onShowStationaryDelayDialog = {
+            android.util.Log.d("DashboardViewModel", "⏰ Showing stationary delay dialog")
+            showStationaryDialog()
+        }
+    }
+
+    /**
+     * Show the 60-second delay dialog after 5 minutes stationary
+     */
+    private fun showStationaryDialog() {
+        _showStationaryDelayDialog.value = true
+        startStationaryCountdown()
+    }
+
+    /**
+     * Start 60 second countdown for stationary delay
+     */
+    private var stationaryCountdownJob: kotlinx.coroutines.Job? = null
+
+    private fun startStationaryCountdown() {
+        stationaryCountdownJob?.cancel()
+        stationaryCountdownJob = viewModelScope.launch {
+            for (i in 60 downTo 1) {
+                _stationaryDelayCountdown.value = i
+                kotlinx.coroutines.delay(1000)
+
+                // If vehicle starts moving, cancel dialog
+                if (bleManager.vehicleMotionState.value == VehicleMotionState.IN_MOTION) {
+                    android.util.Log.d("DashboardViewModel", "🚗 Vehicle started moving - canceling dialog")
+                    dismissStationaryDialog()
+                    return@launch
+                }
+
+                // If dialog was dismissed by user, stop countdown
+                if (!_showStationaryDelayDialog.value) {
+                    return@launch
+                }
+            }
+
+            // Countdown finished - auto change to ON_DUTY
+            android.util.Log.d("DashboardViewModel", "⏰ Countdown finished - changing to ON_DUTY")
+            _stationaryDelayCountdown.value = null
+            _showStationaryDelayDialog.value = false
+
+            // Change status to ON_DUTY
+            val token = com.eld.driver.ELDDriverApplication.getAuthToken()
+            val vehicleId = com.eld.driver.ELDDriverApplication.getCurrentVehicleId()
+            if (token != null) {
+                changeDutyStatus(
+                    token = token,
+                    newStatus = DutyStatusType.ON_DUTY_NOT_DRIVING,
+                    location = null,
+                    notes = "Auto-changed after 5 minutes stationary + 60 sec timeout",
+                    vehicleId = vehicleId,
+                    onSuccess = { }
+                )
+            }
+            bleManager.resetDialogState()
+        }
+    }
+
+    /**
+     * User tapped "Stay Driving" - dismiss dialog and stay in current status
+     */
+    fun stayDriving() {
+        android.util.Log.d("DashboardViewModel", "👆 User chose to Stay Driving")
+        dismissStationaryDialog()
+        bleManager.resetDialogState()
+    }
+
+    /**
+     * User tapped "Go On Duty" - change status to ON_DUTY
+     */
+    fun goOnDuty() {
+        android.util.Log.d("DashboardViewModel", "👆 User chose to Go On Duty")
+        dismissStationaryDialog()
+
+        val token = com.eld.driver.ELDDriverApplication.getAuthToken()
+        val vehicleId = com.eld.driver.ELDDriverApplication.getCurrentVehicleId()
+        if (token != null) {
+            changeDutyStatus(
+                token = token,
+                newStatus = DutyStatusType.ON_DUTY_NOT_DRIVING,
+                location = null,
+                notes = "Changed to On Duty after stationary",
+                vehicleId = vehicleId,
+                onSuccess = { }
+            )
+        }
+        bleManager.resetDialogState()
+    }
+
+    /**
+     * Dismiss the stationary delay dialog
+     */
+    private fun dismissStationaryDialog() {
+        stationaryCountdownJob?.cancel()
+        _showStationaryDelayDialog.value = false
+        _stationaryDelayCountdown.value = null
+    }
+
+    /**
+     * Play sound alert for connection lost while driving
+     */
+    private fun playConnectionLostSound() {
+        try {
+            val context = getApplication<Application>()
+            val mediaPlayer = android.media.MediaPlayer.create(context, android.provider.Settings.System.DEFAULT_ALARM_ALERT_URI)
+            mediaPlayer?.setOnCompletionListener { it.release() }
+            mediaPlayer?.start()
+            android.util.Log.d("DashboardViewModel", "🔊 Playing connection lost alert sound")
+        } catch (e: Exception) {
+            android.util.Log.e("DashboardViewModel", "Failed to play alert sound: ${e.message}")
+        }
+    }
+
+    /**
+     * Start 60 second countdown for auto-restart scan
+     */
+    private fun startAutoRestartCountdown() {
+        viewModelScope.launch {
+            for (i in 60 downTo 1) {
+                _autoRestartCountdown.value = i
+                kotlinx.coroutines.delay(1000)
+
+                // If reconnected during countdown, cancel
+                if (_eldConnectionStatus.value == ELDConnectionStatus.CONNECTED) {
+                    _autoRestartCountdown.value = null
+                    _showConnectionLostAlert.value = false
+                    return@launch
+                }
+            }
+
+            // Countdown finished - auto restart scan
+            _autoRestartCountdown.value = null
+            android.util.Log.d("DashboardViewModel", "🔄 Auto-restarting scan after 60 seconds")
+            connectToELD()
+        }
+    }
+
+    /**
+     * Dismiss connection lost alert
+     */
+    fun dismissConnectionLostAlert() {
+        _showConnectionLostAlert.value = false
     }
 
     fun connectToELD() {
@@ -163,45 +350,110 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         newStatus: DutyStatusType,
         location: String?,
         notes: String?,
+        vehicleId: Int? = null,
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
+            android.util.Log.d("DashboardViewModel", "════════════════════════════════════════════════════════")
+            android.util.Log.d("DashboardViewModel", "🔄 MANUAL STATUS CHANGE REQUEST")
+            android.util.Log.d("DashboardViewModel", "   New Status: $newStatus")
+            android.util.Log.d("DashboardViewModel", "   Location: $location")
+            android.util.Log.d("DashboardViewModel", "   Notes: $notes")
+            android.util.Log.d("DashboardViewModel", "   Vehicle ID: $vehicleId")
+            android.util.Log.d("DashboardViewModel", "   Token: ${token.take(20)}...")
+            android.util.Log.d("DashboardViewModel", "════════════════════════════════════════════════════════")
+
+            _statusChangeMessage.value = "Changing to $newStatus..."
+
             try {
+                // Get current location from BLE device or GPS
+                val currentLocation = locationService.getCurrentLocation()
+                val eldData = bleManager.eldData.value
+
+                android.util.Log.d("DashboardViewModel", "📍 Location data:")
+                android.util.Log.d("DashboardViewModel", "   GPS Lat: ${currentLocation?.latitude}")
+                android.util.Log.d("DashboardViewModel", "   GPS Lon: ${currentLocation?.longitude}")
+                android.util.Log.d("DashboardViewModel", "   Address: ${currentLocation?.address}")
+                android.util.Log.d("DashboardViewModel", "📊 ELD data:")
+                android.util.Log.d("DashboardViewModel", "   Odometer: ${eldData?.odometer}")
+                android.util.Log.d("DashboardViewModel", "   Engine Hours: ${eldData?.engineHours}")
+
+                // Use provided location text or get from coordinates
+                val locationText = location?.ifBlank { null }
+                    ?: currentLocation?.address
+
                 val request = DutyStatusChangeRequest(
                     dutyStatus = newStatus,
-                    vehicleId = null, // TODO: Get from selected vehicle
+                    vehicleId = vehicleId,
                     deviceId = null,
-                    latitude = null,
-                    longitude = null,
-                    location = location,
-                    odometer = null,
-                    engineHours = null,
+                    latitude = currentLocation?.latitude,
+                    longitude = currentLocation?.longitude,
+                    location = locationText,
+                    odometer = eldData?.odometer,
+                    engineHours = eldData?.engineHours,
                     note = notes,
                     shippingDocumentNumber = null,
                     trailerNumber = null
                 )
 
+                android.util.Log.d("DashboardViewModel", "📤 Sending request:")
+                android.util.Log.d("DashboardViewModel", "   $request")
+
                 val response = apiService.changeDutyStatus(token, request)
+
+                android.util.Log.d("DashboardViewModel", "📥 Response received:")
+                android.util.Log.d("DashboardViewModel", "   HTTP Code: ${response.code()}")
+                android.util.Log.d("DashboardViewModel", "   Is Successful: ${response.isSuccessful}")
 
                 if (response.isSuccessful) {
                     val apiResponse = response.body()
+                    android.util.Log.d("DashboardViewModel", "   Body: $apiResponse")
+
                     if (apiResponse?.success == true && apiResponse.data != null) {
                         _currentDutyStatus.value = DutyStatusUiState.Success(apiResponse.data)
-                        println("✅ Changed duty status to: ${apiResponse.data.dutyStatus}")
+                        android.util.Log.d("DashboardViewModel", "✅ SUCCESS! Changed to: ${apiResponse.data.dutyStatus}")
+                        _statusChangeMessage.value = "✅ Changed to ${apiResponse.data.dutyStatus}"
                         onSuccess()
                     } else {
-                        val error = apiResponse?.error ?: "Failed to change duty status"
-                        println("❌ Change duty status failed: $error")
+                        val error = apiResponse?.error ?: "Unknown error - success=false"
+                        android.util.Log.e("DashboardViewModel", "❌ API returned error: $error")
+                        _statusChangeMessage.value = "❌ Error: $error"
                     }
                 } else {
-                    val error = "Failed to change duty status: ${response.code()} ${response.message()}"
-                    println("❌ $error")
+                    val errorBody = response.errorBody()?.string()
+                    android.util.Log.e("DashboardViewModel", "❌ HTTP Error: ${response.code()} ${response.message()}")
+                    android.util.Log.e("DashboardViewModel", "   Error body: $errorBody")
+                    _statusChangeMessage.value = "❌ HTTP ${response.code()}: $errorBody"
                 }
             } catch (e: Exception) {
-                println("❌ Network error: ${e.message}")
-                e.printStackTrace()
+                android.util.Log.e("DashboardViewModel", "❌ EXCEPTION:", e)
+                _statusChangeMessage.value = "❌ Exception: ${e.message}"
             }
+
+            android.util.Log.d("DashboardViewModel", "════════════════════════════════════════════════════════")
+
+            // Clear message after 5 seconds
+            kotlinx.coroutines.delay(5000)
+            _statusChangeMessage.value = null
         }
+    }
+
+    fun clearStatusChangeMessage() {
+        _statusChangeMessage.value = null
+    }
+
+    /**
+     * Get current location for UI display
+     */
+    fun getCurrentLocation(): LocationData? {
+        return locationService.getCurrentLocation()
+    }
+
+    /**
+     * Request fresh location update
+     */
+    fun refreshLocation() {
+        locationService.requestGpsLocation()
     }
 
     fun loadHOSStatus(token: String) {

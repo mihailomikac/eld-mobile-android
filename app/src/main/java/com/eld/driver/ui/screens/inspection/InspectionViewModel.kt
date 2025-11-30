@@ -129,8 +129,8 @@ class InspectionViewModel : ViewModel() {
                     if (apiResponse?.success == true && apiResponse.data != null) {
                         _vehicleDefectsForm.value = apiResponse.data
                         // Extract defect options as simple list
-                        _vehicleDefectsState.value = apiResponse.data.allowedVehicleDefects
-                        println("✅ Loaded ${apiResponse.data.allowedVehicleDefects.size} vehicle defect options")
+                        _vehicleDefectsState.value = apiResponse.data.allowedVehicleDefects ?: emptyList()
+                        println("✅ Loaded ${apiResponse.data.allowedVehicleDefects?.size ?: 0} vehicle defect options")
                     }
                 }
             } catch (e: Exception) {
@@ -152,8 +152,8 @@ class InspectionViewModel : ViewModel() {
                     if (apiResponse?.success == true && apiResponse.data != null) {
                         _assetDefectsForm.value = apiResponse.data
                         // Extract defect options as simple list
-                        _assetDefectsState.value = apiResponse.data.allowedAssetDefects
-                        println("✅ Loaded ${apiResponse.data.allowedAssetDefects.size} asset defect options")
+                        _assetDefectsState.value = apiResponse.data.allowedAssetDefects ?: emptyList()
+                        println("✅ Loaded ${apiResponse.data.allowedAssetDefects?.size ?: 0} asset defect options")
                     }
                 }
             } catch (e: Exception) {
@@ -172,7 +172,7 @@ class InspectionViewModel : ViewModel() {
                     val apiResponse = vehicleResponse.body()
                     if (apiResponse?.success == true && apiResponse.data != null) {
                         _vehicleDefectsForm.value = apiResponse.data
-                        _vehicleDefectsState.value = apiResponse.data.allowedVehicleDefects
+                        _vehicleDefectsState.value = apiResponse.data.allowedVehicleDefects ?: emptyList()
                         println("✅ Loaded vehicle defects form: ${apiResponse.data.formName}")
                     }
                 }
@@ -184,7 +184,7 @@ class InspectionViewModel : ViewModel() {
                         val apiResponse = assetResponse.body()
                         if (apiResponse?.success == true && apiResponse.data != null) {
                             _assetDefectsForm.value = apiResponse.data
-                            _assetDefectsState.value = apiResponse.data.allowedAssetDefects
+                            _assetDefectsState.value = apiResponse.data.allowedAssetDefects ?: emptyList()
                             println("✅ Loaded asset defects form: ${apiResponse.data.formName}")
                         }
                     }

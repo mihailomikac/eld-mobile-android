@@ -25,6 +25,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
+ * Vehicle motion state based on speed
+ */
+enum class VehicleMotionState {
+    IN_MOTION,    // Speed > 5 mph
+    STATIONARY    // Speed <= 5 mph
+}
+
+/**
  * Manager for Geometris WQ devices using official wqlib SDK v1.0.10
  * Singleton to maintain connection across all screens
  */
@@ -63,13 +71,36 @@ class GeometrisWQManager private constructor(private val context: Context) {
 
     // Auto status detection state
     private var lastSpeed: Double = 0.0
-    private var lastMovementTime: Long = 0L
+    private var lastMovementTime: Long = System.currentTimeMillis()  // Initialize to now
     private var consecutiveIdleTime: Long = 0L
     private var isVehicleMoving: Boolean = false
     private var lastSuggestedStatus: String? = null  // Track last suggested status to avoid duplicates
+    private var idleCheckStarted: Boolean = false  // Track if idle checking has started
 
     // Callbacks for auto status changes
     var onAutoStatusChangeNeeded: ((suggestedStatus: String, reason: String) -> Unit)? = null
+
+    // Callback for connection lost while driving
+    var onConnectionLostWhileDriving: (() -> Unit)? = null
+
+    // Callback for showing 60-second delay dialog after 5 min stationary
+    var onShowStationaryDelayDialog: (() -> Unit)? = null
+
+    // Vehicle motion state
+    private val _vehicleMotionState = MutableStateFlow<VehicleMotionState>(VehicleMotionState.STATIONARY)
+    val vehicleMotionState: StateFlow<VehicleMotionState> = _vehicleMotionState.asStateFlow()
+
+    // Track if vehicle was moving when connection was lost
+    private var wasMovingBeforeDisconnect = false
+
+    /**
+     * Reset the dialog state when user makes a choice or starts driving again
+     */
+    fun resetDialogState() {
+        lastSuggestedStatus = null
+        idleCheckStarted = false
+        addDebugLog("Dialog state reset")
+    }
 
     private val wherequbeObserver = object : AbstractWherequbeStateObserver() {
         override fun onConnected() {
@@ -92,6 +123,17 @@ class GeometrisWQManager private constructor(private val context: Context) {
 
         override fun onDisconnected() {
             addDebugLog("Device disconnected")
+
+            // Check if vehicle was moving when disconnected
+            if (isVehicleMoving || _vehicleMotionState.value == VehicleMotionState.IN_MOTION) {
+                addDebugLog("⚠️ CONNECTION LOST WHILE DRIVING!")
+                wasMovingBeforeDisconnect = true
+                _vehicleMotionState.value = VehicleMotionState.STATIONARY
+                onConnectionLostWhileDriving?.invoke()
+            } else {
+                wasMovingBeforeDisconnect = false
+            }
+
             _connectionState.value = BleConnectionState.Disconnected
         }
 
@@ -162,6 +204,9 @@ class GeometrisWQManager private constructor(private val context: Context) {
 
         // Rule 1: Speed > 5 mph → Vehicle is moving, should be DRIVING
         if (speedMph > 5.0) {
+            // Update motion state
+            _vehicleMotionState.value = VehicleMotionState.IN_MOTION
+
             if (!isVehicleMoving) {
                 isVehicleMoving = true
                 lastMovementTime = currentTime
@@ -171,6 +216,11 @@ class GeometrisWQManager private constructor(private val context: Context) {
                 if (lastSuggestedStatus != "DRIVING") {
                     addDebugLog("🚗 Auto-Detection: Vehicle STARTED moving at ${String.format("%.1f", speedMph)} mph")
                     addDebugLog("🔔 Calling callback: DRIVING (was: $lastSuggestedStatus)")
+                    Log.d(TAG, "════════════════════════════════════════")
+                    Log.d(TAG, "🔔 INVOKING onAutoStatusChangeNeeded")
+                    Log.d(TAG, "   Status: DRIVING")
+                    Log.d(TAG, "   Callback registered: ${onAutoStatusChangeNeeded != null}")
+                    Log.d(TAG, "════════════════════════════════════════")
                     onAutoStatusChangeNeeded?.invoke("DRIVING", "Vehicle moving at ${String.format("%.1f", speedMph)} mph")
                     lastSuggestedStatus = "DRIVING"
                     addDebugLog("✅ Callback invoked successfully")
@@ -183,30 +233,50 @@ class GeometrisWQManager private constructor(private val context: Context) {
         }
         // Rule 2: Speed < 5 mph → Vehicle might be idle
         else {
+            // Update motion state
+            _vehicleMotionState.value = VehicleMotionState.STATIONARY
+
             if (isVehicleMoving) {
                 // Vehicle just stopped
                 isVehicleMoving = false
                 lastMovementTime = currentTime
+                idleCheckStarted = true
                 consecutiveIdleTime = 0
-                addDebugLog("Auto-Detection: Vehicle stopped")
+                addDebugLog("Auto-Detection: Vehicle stopped, starting idle timer")
             } else {
+                // Start idle check if not already started (for manual DRIVING status)
+                if (!idleCheckStarted) {
+                    idleCheckStarted = true
+                    lastMovementTime = currentTime
+                    addDebugLog("Auto-Detection: Starting idle timer (vehicle was already stationary)")
+                }
+
                 // Vehicle still idle - count time
                 consecutiveIdleTime = currentTime - lastMovementTime
+                val idleMinutes = consecutiveIdleTime / 60000
+                val idleSeconds = (consecutiveIdleTime % 60000) / 1000
 
-                // After 5 minutes of idle (300,000 ms), suggest ON_DUTY
+                // Log every 30 seconds
+                if (consecutiveIdleTime % 30000 < 5000) {
+                    addDebugLog("Idle time: ${idleMinutes}m ${idleSeconds}s / 5m required")
+                }
+
+                // After 5 minutes of idle (300,000 ms), show delay dialog
                 if (consecutiveIdleTime >= 300_000) {
-                    // Only call callback if status is different from last suggested
-                    if (lastSuggestedStatus != "ON_DUTY") {
-                        addDebugLog("Auto-Detection: Vehicle idle for 5+ minutes, suggesting ON_DUTY")
-                        addDebugLog("🔔 Calling callback: ON_DUTY (was: $lastSuggestedStatus)")
-                        onAutoStatusChangeNeeded?.invoke("ON_DUTY", "Vehicle stationary for 5 minutes")
-                        lastSuggestedStatus = "ON_DUTY"
-                        addDebugLog("✅ Callback invoked successfully")
-                    } else {
-                        addDebugLog("⏭️ Already in ON_DUTY status, skipping duplicate API call")
+                    if (lastSuggestedStatus != "SHOWING_DIALOG") {
+                        addDebugLog("⏰ Vehicle idle for 5+ minutes - showing delay dialog")
+                        Log.d(TAG, "════════════════════════════════════════")
+                        Log.d(TAG, "🔔 SHOWING STATIONARY DELAY DIALOG")
+                        Log.d(TAG, "   Idle time: ${consecutiveIdleTime / 1000}s")
+                        Log.d(TAG, "   Callback registered: ${onShowStationaryDelayDialog != null}")
+                        Log.d(TAG, "════════════════════════════════════════")
+                        onShowStationaryDelayDialog?.invoke()
+                        lastSuggestedStatus = "SHOWING_DIALOG"
+                        addDebugLog("✅ Dialog callback invoked")
                     }
-                    // Reset to avoid repeated suggestions
+                    // Reset timer - dialog will handle the rest
                     lastMovementTime = currentTime
+                    idleCheckStarted = false
                 }
             }
         }

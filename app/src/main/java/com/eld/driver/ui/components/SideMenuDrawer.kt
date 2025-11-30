@@ -98,7 +98,7 @@ fun SideMenuDrawer(
                 icon = Icons.Default.Search,
                 title = "DVIR",
                 onClick = {
-                    navController.navigate("inspections")
+                    navController.navigate("dvir")
                     onClose()
                 }
             )

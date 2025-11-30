@@ -72,15 +72,28 @@ data class InspectionListItem(
 )
 
 data class VehicleDefectsFormResponse(
-    val dvirFormId: Int,
-    val formName: String,
-    val allowedVehicleDefects: List<String>
+    val dvirFormId: Int? = null,
+    val formName: String? = null,
+    val allowedVehicleDefects: List<String>? = null,
+    val defectCategories: List<DefectCategoryResponse>? = null
 )
 
 data class AssetDefectsFormResponse(
-    val dvirFormId: Int,
-    val formName: String,
-    val allowedAssetDefects: List<String>
+    val dvirFormId: Int? = null,
+    val formName: String? = null,
+    val allowedAssetDefects: List<String>? = null,
+    val defectCategories: List<DefectCategoryResponse>? = null
+)
+
+data class DefectCategoryResponse(
+    val id: Int? = null,
+    val name: String? = null,
+    val defects: List<DefectItemResponse>? = null
+)
+
+data class DefectItemResponse(
+    val id: Int? = null,
+    val name: String? = null
 )
 
 data class TickEventRequest(
@@ -94,12 +107,22 @@ data class TickEventRequest(
 )
 
 enum class TickEventType {
+    @SerializedName("LOGIN")
     LOGIN,
+    @SerializedName("LOGOUT")
     LOGOUT,
+    @SerializedName("CONNECTED")
     CONNECTED,
+    @SerializedName("DISCONNECTED")
     DISCONNECTED,
+    @SerializedName("POWER_UP")
     POWER_UP,
-    SHUT_DOWN
+    @SerializedName("POWER_DOWN")
+    POWER_DOWN,
+    @SerializedName("SHUT_DOWN")
+    SHUT_DOWN,
+    @SerializedName("INTERMEDIATE")
+    INTERMEDIATE
 }
 
 data class DutyStatusChangeRequest(

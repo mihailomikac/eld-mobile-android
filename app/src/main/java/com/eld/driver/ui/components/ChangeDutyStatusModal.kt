@@ -18,6 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.eld.driver.ui.theme.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 /**
  * Change Duty Status Modal - Matches iOS design exactly
@@ -26,12 +28,22 @@ import com.eld.driver.ui.theme.*
 @Composable
 fun ChangeDutyStatusModal(
     currentStatus: String?,
+    initialLocation: String? = null,
     onDismiss: () -> Unit,
+    onRefreshLocation: (() -> Unit)? = null,
     onConfirm: (status: String, location: String, notes: String) -> Unit
 ) {
     var selectedStatus by remember { mutableStateOf(currentStatus ?: "OFF_DUTY") }
-    var location by remember { mutableStateOf("") }
+    var location by remember { mutableStateOf(initialLocation ?: "") }
     var notes by remember { mutableStateOf("") }
+    var isLoadingLocation by remember { mutableStateOf(false) }
+
+    // Update location when initialLocation changes
+    LaunchedEffect(initialLocation) {
+        if (!initialLocation.isNullOrBlank() && location.isBlank()) {
+            location = initialLocation
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -120,12 +132,31 @@ fun ChangeDutyStatusModal(
                     onValueChange = { location = it },
                     placeholder = { Text("Location", color = TextSecondary) },
                     trailingIcon = {
-                        IconButton(onClick = { /* TODO: Get GPS location */ }) {
-                            Icon(
-                                imageVector = Icons.Default.MyLocation,
-                                contentDescription = "Get location",
-                                tint = TextSecondary
-                            )
+                        IconButton(
+                            onClick = {
+                                isLoadingLocation = true
+                                onRefreshLocation?.invoke()
+                                // Reset after short delay
+                                kotlinx.coroutines.MainScope().launch {
+                                    kotlinx.coroutines.delay(1000)
+                                    isLoadingLocation = false
+                                }
+                            },
+                            enabled = !isLoadingLocation
+                        ) {
+                            if (isLoadingLocation) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = Blue600,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.MyLocation,
+                                    contentDescription = "Get location",
+                                    tint = Blue600
+                                )
+                            }
                         }
                     },
                     colors = OutlinedTextFieldDefaults.colors(

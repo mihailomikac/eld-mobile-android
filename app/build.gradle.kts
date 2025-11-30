@@ -93,6 +93,9 @@ dependencies {
     // JWT decoding
     implementation("com.auth0.android:jwtdecode:2.0.2")
 
+    // Google Play Services - Location
+    implementation("com.google.android.gms:play-services-location:21.0.1")
+
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

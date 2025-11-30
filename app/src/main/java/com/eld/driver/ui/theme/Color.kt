@@ -12,6 +12,12 @@ val StatusOff = Color(0xFF6B7280)
 val StatusConnectRed = Color(0xFFDC2626)
 val StatusConnectGreen = Color(0xFF10B981)
 
+// Duty Status Colors
+val StatusOffDuty = Color(0xFF6B7280)      // Gray
+val StatusSleeper = Color(0xFF8B5CF6)      // Purple
+val StatusDriving = Color(0xFF10B981)      // Green
+val StatusOnDuty = Color(0xFF3B82F6)       // Blue
+
 // Accent Colors
 val AccentBlue = Color(0xFF2563EB)
 val AccentGreen = Color(0xFF10B981)

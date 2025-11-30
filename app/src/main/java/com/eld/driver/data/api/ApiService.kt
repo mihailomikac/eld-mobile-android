@@ -90,6 +90,27 @@ interface ApiService {
         @Path("assetId") assetId: Int
     ): Response<ApiResponse<AssetDefectsFormResponse>>
 
+    // Driver Logs - Daily Summary
+    @GET("api/mobile/drivers/logs")
+    suspend fun getDriverLogs(
+        @Header("Authorization") token: String,
+        @Query("days") days: Int = 7
+    ): Response<ApiResponse<DriverLogsData>>
+
+    // Driver Events for specific date
+    @GET("api/mobile/drivers/events")
+    suspend fun getDriverEvents(
+        @Header("Authorization") token: String,
+        @Query("date") date: String? = null
+    ): Response<ApiResponse<DriverEventsData>>
+
+    // Certify log for specific date
+    @POST("api/mobile/drivers/logs/{date}/certify")
+    suspend fun certifyLog(
+        @Header("Authorization") token: String,
+        @Path("date") date: String
+    ): Response<ApiResponse<Unit>>
+
     companion object {
         private var instance: ApiService? = null
 

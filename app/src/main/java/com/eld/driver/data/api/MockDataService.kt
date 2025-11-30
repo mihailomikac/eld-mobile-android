@@ -1,7 +1,6 @@
 package com.eld.driver.data.api
 
 import com.eld.driver.data.models.*
-import java.util.*
 
 object MockDataService {
     // Mock flag - set to false when backend is ready
@@ -91,72 +90,5 @@ object MockDataService {
         return ELDConnectionStatus.DISCONNECTED
     }
 
-    // Mock Daily Logs
-    fun getMockDailyLogs(): List<DailyLog> {
-        val calendar = Calendar.getInstance()
-        val today = calendar.time
-
-        return listOf(
-            DailyLog(
-                id = "1",
-                date = today,
-                recapHours = 0,
-                recapMinutes = 0,
-                inspections = 0,
-                distance = 0.0,
-                isCertified = true,
-                hasDefects = false
-            ),
-            DailyLog(
-                id = "2",
-                date = Date(today.time - 86400000L), // 1 day ago
-                recapHours = 0,
-                recapMinutes = 0,
-                inspections = 0,
-                distance = 0.0,
-                isCertified = false,
-                hasDefects = false
-            ),
-            DailyLog(
-                id = "3",
-                date = Date(today.time - 172800000L), // 2 days ago
-                recapHours = 0,
-                recapMinutes = 0,
-                inspections = 0,
-                distance = 0.0,
-                isCertified = true,
-                hasDefects = false
-            ),
-            DailyLog(
-                id = "4",
-                date = Date(today.time - 259200000L), // 3 days ago
-                recapHours = 0,
-                recapMinutes = 18,
-                inspections = 0,
-                distance = 0.0,
-                isCertified = true,
-                hasDefects = true
-            ),
-            DailyLog(
-                id = "5",
-                date = Date(today.time - 345600000L), // 4 days ago
-                recapHours = 0,
-                recapMinutes = 0,
-                inspections = 0,
-                distance = 0.0,
-                isCertified = true,
-                hasDefects = false
-            ),
-            DailyLog(
-                id = "6",
-                date = Date(today.time - 432000000L), // 5 days ago
-                recapHours = 0,
-                recapMinutes = 0,
-                inspections = 0,
-                distance = 0.0,
-                isCertified = true,
-                hasDefects = false
-            )
-        )
-    }
+    // Note: Daily Logs are now fetched from real API (see LogsViewModel)
 }

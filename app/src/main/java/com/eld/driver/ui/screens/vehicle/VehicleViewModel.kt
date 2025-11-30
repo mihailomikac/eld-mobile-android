@@ -6,8 +6,11 @@ import com.eld.driver.data.api.ApiService
 import com.eld.driver.data.models.MobileVehicleListData
 import com.eld.driver.data.models.Vehicle
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -28,6 +31,14 @@ class VehicleViewModel : ViewModel() {
 
     private val _currentVehicleId = MutableStateFlow<Int?>(null)
     val currentVehicleId: StateFlow<Int?> = _currentVehicleId.asStateFlow()
+
+    // Currently selected vehicle object
+    val selectedVehicle: StateFlow<Vehicle?> = combine(
+        _currentVehicleId,
+        _allVehicles
+    ) { vehicleId, vehicles ->
+        vehicleId?.let { id -> vehicles.find { it.id == id } }
+    }.stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     fun loadVehicles(token: String) {
         viewModelScope.launch {
