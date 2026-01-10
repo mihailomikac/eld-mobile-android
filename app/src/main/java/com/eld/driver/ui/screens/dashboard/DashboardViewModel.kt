@@ -6,10 +6,13 @@ import androidx.lifecycle.viewModelScope
 import com.eld.driver.ble.GeometrisWQManager
 import com.eld.driver.ble.VehicleMotionState
 import com.eld.driver.ble.models.BleConnectionState
-import com.eld.driver.data.api.ApiService
+import com.eld.driver.ble.models.UnidentifiedEvent
 import com.eld.driver.data.models.*
+import com.eld.driver.data.repository.ELDRepository
+import com.eld.driver.hos.HOSCalculationResult
 import com.eld.driver.location.LocationService
 import com.eld.driver.location.LocationData
+import com.eld.driver.service.ELDForegroundService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,9 +23,16 @@ import kotlin.math.abs
 
 /**
  * DashboardViewModel - Handles dashboard data and state + BLE integration
+ *
+ * Data flow:
+ * - On login: Initial sync pulls data from server -> saves to local DB
+ * - During use: UI observes local DB via Flow (single source of truth)
+ * - Changes: Save locally first -> queue for sync -> periodic sync sends to server
+ * - Never pulls from server after initial sync (to prevent data mixing)
  */
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
-    private val apiService = ApiService.getInstance()
+    // Repository for offline-first data access (single source of truth)
+    private val repository = ELDRepository.getInstance(application)
 
     // BLE Manager for ELD device (singleton - shared across all screens)
     private val bleManager = GeometrisWQManager.getInstance(application)
@@ -36,8 +46,37 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _currentDutyStatus = MutableStateFlow<DutyStatusUiState>(DutyStatusUiState.Loading)
     val currentDutyStatus: StateFlow<DutyStatusUiState> = _currentDutyStatus.asStateFlow()
 
+    // HOS Status from local calculation
     private val _hosStatus = MutableStateFlow<HOSStatus?>(null)
     val hosStatus: StateFlow<HOSStatus?> = _hosStatus.asStateFlow()
+
+    // Flag to prevent re-initialization on ViewModel recreation
+    private var isInitialized = false
+
+    // HOS Calculation Result (detailed, for advanced UI)
+    private val _hosCalculationResult = MutableStateFlow<HOSCalculationResult?>(null)
+    val hosCalculationResult: StateFlow<HOSCalculationResult?> = _hosCalculationResult.asStateFlow()
+
+    // Flag to track if initial sync has been done (only once per session)
+    private var initialSyncCompleted = false
+
+    // Loading state for Dashboard - true until initial data is loaded
+    private val _isInitialLoading = MutableStateFlow(true)
+    val isInitialLoading: StateFlow<Boolean> = _isInitialLoading.asStateFlow()
+
+    // Sync status
+    private val _isOnline = MutableStateFlow(true)
+    val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+
+    private val _pendingSyncCount = MutableStateFlow(0)
+    val pendingSyncCount: StateFlow<Int> = _pendingSyncCount.asStateFlow()
+
+    // Last sync result for debug display
+    private val _lastSyncResult = MutableStateFlow<String?>(null)
+
+    // Refresh tick - increments every minute to trigger UI recomposition
+    private val _refreshTick = MutableStateFlow(0L)
+    val refreshTick: StateFlow<Long> = _refreshTick.asStateFlow()
 
     // ELD Connection State
     private val _eldConnectionStatus = MutableStateFlow(ELDConnectionStatus.DISCONNECTED)
@@ -58,6 +97,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _autoRestartCountdown = MutableStateFlow<Int?>(null)
     val autoRestartCountdown: StateFlow<Int?> = _autoRestartCountdown.asStateFlow()
 
+    // Reconnect attempt info (attempt/maxAttempts)
+    private val _reconnectAttemptInfo = MutableStateFlow<Pair<Int, Int>?>(null)
+    val reconnectAttemptInfo: StateFlow<Pair<Int, Int>?> = _reconnectAttemptInfo.asStateFlow()
+
     // Status change error/success message for UI display
     private val _statusChangeMessage = MutableStateFlow<String?>(null)
     val statusChangeMessage: StateFlow<String?> = _statusChangeMessage.asStateFlow()
@@ -69,36 +112,191 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _stationaryDelayCountdown = MutableStateFlow<Int?>(null)
     val stationaryDelayCountdown: StateFlow<Int?> = _stationaryDelayCountdown.asStateFlow()
 
+    // Bluetooth enable request
+    private val _showBluetoothEnableRequest = MutableStateFlow(false)
+    val showBluetoothEnableRequest: StateFlow<Boolean> = _showBluetoothEnableRequest.asStateFlow()
+
+    // Unidentified Driving events count and list
+    private val _unidentifiedEventsCount = MutableStateFlow(0)
+    val unidentifiedEventsCount: StateFlow<Int> = _unidentifiedEventsCount.asStateFlow()
+
+    private val _unidentifiedEvents = MutableStateFlow<List<UnidentifiedEvent>>(emptyList())
+    val unidentifiedEvents: StateFlow<List<UnidentifiedEvent>> = _unidentifiedEvents.asStateFlow()
+
     init {
-        // Periodically sync BLE manager logs to UI
+        // NOTE: isInitialLoading stays TRUE until performInitialSync() completes
+        // This ensures we show loading screen until all data (events + HOS) is ready
+        android.util.Log.d("DashboardViewModel", "🔄 ViewModel created - loading screen active until sync completes")
+
+        // Observe HOS status from repository (locally calculated)
         viewModelScope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(1000) // Update every second
-                val bleManagerLogs = bleManager.getDebugLogs()
-                if (bleManagerLogs.isNotEmpty()) {
-                    _debugLogs.value = bleManagerLogs
+            repository.getHOSStatusFlow().collect { result ->
+                _hosCalculationResult.value = result
+                // Convert to HOSStatus model for backward compatibility
+                _hosStatus.value = repository.getHOSStatusModel()
+            }
+        }
+
+        // Observe sync status
+        viewModelScope.launch {
+            repository.getPendingSyncCountFlow().collect { count ->
+                _pendingSyncCount.value = count
+            }
+        }
+
+        // Observe unidentified driving events from BLE Manager
+        viewModelScope.launch {
+            bleManager.eldData.collect { data ->
+                _unidentifiedEventsCount.value = data?.totalUnidentifiedEvents ?: 0
+                _unidentifiedEvents.value = data?.unidentifiedEvents ?: emptyList()
+
+                if ((data?.totalUnidentifiedEvents ?: 0) > 0) {
+                    android.util.Log.d("DashboardViewModel", "📋 UD Events received: ${data?.totalUnidentifiedEvents} total, ${data?.unidentifiedEvents?.size} in list")
                 }
             }
         }
 
-        // Periodically refresh current duty status to catch automatic changes
+        // Also observe the dedicated UD events StateFlow
+        viewModelScope.launch {
+            bleManager.unidentifiedEvents.collect { events ->
+                if (events.isNotEmpty()) {
+                    _unidentifiedEvents.value = events
+                    _unidentifiedEventsCount.value = events.size
+                    android.util.Log.d("DashboardViewModel", "📋 UD Events from StateFlow: ${events.size} events")
+                }
+            }
+        }
+
+        // Refresh tick every minute to update status duration display
         viewModelScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(5000) // Refresh every 5 seconds
-                val token = com.eld.driver.ELDDriverApplication.getAuthToken()
-                if (token != null && _eldConnectionStatus.value == ELDConnectionStatus.CONNECTED) {
-                    // Silently refresh status without showing loading state
-                    try {
-                        val response = apiService.getCurrentDutyStatus(token)
-                        if (response.isSuccessful && response.body()?.success == true && response.body()?.data != null) {
-                            _currentDutyStatus.value = DutyStatusUiState.Success(response.body()!!.data!!)
+                kotlinx.coroutines.delay(60_000) // Every 1 minute
+                _refreshTick.value = System.currentTimeMillis()
+            }
+        }
+
+        // Periodically sync BLE manager logs to UI + add sync status
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1000) // Update every second
+                val bleManagerLogs = bleManager.getDebugLogs().toMutableList()
+
+                // Add UD events status to debug logs
+                val udStatus = buildString {
+                    appendLine("═══ UNIDENTIFIED DRIVING ═══")
+                    val udCount = _unidentifiedEventsCount.value
+                    val udList = _unidentifiedEvents.value
+                    appendLine("📋 Total UD Events: $udCount")
+                    appendLine("📋 Events in list: ${udList.size}")
+
+                    if (udList.isNotEmpty()) {
+                        appendLine("───────────────────")
+                        udList.forEachIndexed { index, event ->
+                            appendLine("Event #${index + 1}:")
+                            appendLine("  Reason: ${event.getReasonString()}")
+                            appendLine("  Time: ${event.timestamp?.let {
+                                java.text.SimpleDateFormat("MM/dd HH:mm:ss", java.util.Locale.US)
+                                    .format(java.util.Date(it * 1000))
+                            } ?: "N/A"}")
+                            appendLine("  Speed: ${String.format("%.1f", (event.speed ?: 0.0) * 0.621371)} mph")
+                            appendLine("  Odometer: ${String.format("%.1f", (event.odometer ?: 0.0) * 0.621371)} mi")
+                            appendLine("  Location: ${event.latitude?.let { lat ->
+                                event.longitude?.let { lon ->
+                                    "${String.format("%.4f", lat)}, ${String.format("%.4f", lon)}"
+                                }
+                            } ?: "N/A"}")
+                            if (index < udList.size - 1) appendLine("───────────────────")
                         }
-                    } catch (e: Exception) {
-                        // Silently fail - don't disrupt UI
+                    } else {
+                        appendLine("No UD events detected")
+                    }
+                }
+                bleManagerLogs.add(0, udStatus)
+
+                // Add sync status to debug logs
+                val syncStatus = buildString {
+                    appendLine("═══ SYNC STATUS ═══")
+                    appendLine("Online: ${repository.isOnline()}")
+                    appendLine("Pending sync: ${repository.getPendingSyncCount()}")
+                    appendLine("Auth token: ${if (com.eld.driver.ELDDriverApplication.getAuthToken() != null) "SET" else "NULL"}")
+                    appendLine("Vehicle ID: ${com.eld.driver.ELDDriverApplication.getCurrentVehicleId() ?: "NULL"}")
+
+                    val lastError = repository.getLastSyncError()
+                    if (lastError != null) {
+                        appendLine("═══ LAST ERROR ═══")
+                        appendLine("❌ $lastError")
+                    }
+
+                    if (_lastSyncResult.value != null) {
+                        appendLine("═══ LAST SYNC ═══")
+                        appendLine(_lastSyncResult.value)
+                    }
+                }
+                bleManagerLogs.add(0, syncStatus)
+
+                // Add ELD connection status
+                val eldStatus = buildString {
+                    appendLine("═══ ELD CONNECTION ═══")
+                    appendLine("Status: ${_eldConnectionStatus.value}")
+                    appendLine("Motion: ${bleManager.vehicleMotionState.value}")
+                    val eldData = bleManager.eldData.value
+                    if (eldData != null) {
+                        appendLine("Speed: ${String.format("%.1f", (eldData.speed ?: 0.0) * 0.621371)} mph")
+                        appendLine("Protocol: v${eldData.protocolVersion}")
+                        appendLine("VIN: ${eldData.vin ?: "N/A"}")
+                        appendLine("Total UD on device: ${eldData.totalUnidentifiedEvents}")
+                    } else {
+                        appendLine("No ELD data available")
+                    }
+                }
+                bleManagerLogs.add(0, eldStatus)
+
+                _debugLogs.value = bleManagerLogs
+
+                // Update online status
+                _isOnline.value = repository.isOnline()
+            }
+        }
+
+        // SINGLE SOURCE OF TRUTH: Observe local duty status from Room database
+        // UI ALWAYS shows local data. Initial sync populates local DB from server.
+        viewModelScope.launch {
+            repository.getCurrentDutyStatusFlow().collect { localEvent ->
+                if (localEvent != null) {
+                    android.util.Log.d("DashboardViewModel", "📊 Current duty status from DB: " +
+                        "status=${localEvent.dutyStatus}, startTime=${java.util.Date(localEvent.startTime)}, " +
+                        "isActive=${localEvent.isActive}, id=${localEvent.id}")
+                    // Convert local entity to UI model
+                    val dutyStatus = com.eld.driver.data.models.DutyStatus(
+                        id = localEvent.serverId ?: 0,
+                        dutyStatus = try {
+                            DutyStatusType.valueOf(localEvent.dutyStatus)
+                        } catch (e: Exception) {
+                            DutyStatusType.OFF_DUTY
+                        },
+                        startTime = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+                            timeZone = java.util.TimeZone.getTimeZone("UTC")
+                        }.format(java.util.Date(localEvent.startTime)),
+                        location = localEvent.location,
+                        vehicleId = localEvent.vehicleId
+                    )
+                    _currentDutyStatus.value = DutyStatusUiState.Success(dutyStatus)
+
+                    // Update foreground notification with current duty status
+                    updateForegroundNotification(dutyStatus.dutyStatus)
+                } else {
+                    android.util.Log.d("DashboardViewModel", "⚠️ No duty status event in database!")
+                    if (_currentDutyStatus.value is DutyStatusUiState.Loading) {
+                        // Only keep loading if we haven't loaded anything yet
+                        // Don't overwrite existing data with loading state
                     }
                 }
             }
         }
+
+        // NOTE: No periodic API polling here!
+        // Data flow: Server → Initial Sync → Local DB → Flow → UI
+        // Changes: UI → Local DB → Sync Queue → Server
 
         // Monitor BLE connection state
         viewModelScope.launch {
@@ -107,9 +305,23 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     is BleConnectionState.Disconnected -> ELDConnectionStatus.DISCONNECTED
                     is BleConnectionState.Scanning -> ELDConnectionStatus.PAIRING
                     is BleConnectionState.Connecting -> ELDConnectionStatus.PAIRING
+                    is BleConnectionState.Reconnecting -> ELDConnectionStatus.RECONNECTING
                     is BleConnectionState.Connected -> ELDConnectionStatus.CONNECTED
                     is BleConnectionState.Ready -> ELDConnectionStatus.CONNECTED
                     else -> ELDConnectionStatus.DISCONNECTED
+                }
+
+                // Update reconnect attempt info
+                _reconnectAttemptInfo.value = if (state is BleConnectionState.Reconnecting) {
+                    Pair(state.attempt, state.maxAttempts)
+                } else {
+                    null
+                }
+
+                // Update foreground notification when ELD connection changes
+                val currentStatus = (_currentDutyStatus.value as? DutyStatusUiState.Success)?.dutyStatus?.dutyStatus
+                if (currentStatus != null) {
+                    updateForegroundNotification(currentStatus)
                 }
 
                 // Auto-connect to device with matching serial during scan
@@ -296,8 +508,21 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun connectToELD() {
+        // CRITICAL: Check if a vehicle is selected before attempting connection
+        val vehicleId = com.eld.driver.ELDDriverApplication.getCurrentVehicleId()
+        if (vehicleId == null) {
+            android.util.Log.e("DashboardViewModel", "❌ Cannot connect to ELD - no vehicle selected!")
+            _statusChangeMessage.value = "❌ Please select a vehicle first"
+            viewModelScope.launch {
+                kotlinx.coroutines.delay(3000)
+                _statusChangeMessage.value = null
+            }
+            return
+        }
+
         if (!bleManager.isBluetoothEnabled()) {
-            android.util.Log.e("DashboardViewModel", "Bluetooth not enabled")
+            android.util.Log.e("DashboardViewModel", "Bluetooth not enabled - requesting enable")
+            _showBluetoothEnableRequest.value = true
             return
         }
         if (!bleManager.hasRequiredPermissions()) {
@@ -305,8 +530,18 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
 
-        android.util.Log.d("DashboardViewModel", "Starting scan for ELD")
-        bleManager.startScan()
+        // Check if we have an ELD MAC address for the selected vehicle
+        val eldMacAddress = com.eld.driver.ELDDriverApplication.getCurrentEldMacAddress()
+
+        if (eldMacAddress != null && eldMacAddress.isNotBlank()) {
+            // Direct connect using MAC address - no scanning needed
+            android.util.Log.d("DashboardViewModel", "🔌 Direct connecting to ELD MAC: $eldMacAddress (vehicleId=$vehicleId)")
+            bleManager.connectToMacAddress(eldMacAddress)
+        } else {
+            // No MAC address configured - fall back to scanning
+            android.util.Log.d("DashboardViewModel", "Starting scan for ELD (no MAC address configured, vehicleId=$vehicleId)")
+            bleManager.startScan()
+        }
     }
 
     fun disconnectFromELD() {
@@ -314,37 +549,83 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         bleManager.disconnect()
     }
 
-    fun loadCurrentDutyStatus(token: String) {
-        viewModelScope.launch {
-            _currentDutyStatus.value = DutyStatusUiState.Loading
+    /**
+     * Cancel ongoing reconnect attempts and go to disconnected state
+     */
+    fun cancelReconnect() {
+        android.util.Log.d("DashboardViewModel", "Canceling reconnect attempts")
+        bleManager.cancelReconnect()
+    }
 
-            try {
-                val response = apiService.getCurrentDutyStatus(token)
+    /**
+     * Check if Bluetooth is enabled
+     */
+    fun isBluetoothEnabled(): Boolean {
+        return bleManager.isBluetoothEnabled()
+    }
 
-                if (response.isSuccessful) {
-                    val apiResponse = response.body()
-                    if (apiResponse?.success == true && apiResponse.data != null) {
-                        _currentDutyStatus.value = DutyStatusUiState.Success(apiResponse.data)
-                        println("✅ Loaded current duty status: ${apiResponse.data.dutyStatus}")
-                    } else {
-                        val error = apiResponse?.error ?: "Failed to load duty status"
-                        _currentDutyStatus.value = DutyStatusUiState.Error(error)
-                        println("❌ Load duty status failed: $error")
-                    }
-                } else {
-                    val error = "Failed to load duty status: ${response.code()} ${response.message()}"
-                    _currentDutyStatus.value = DutyStatusUiState.Error(error)
-                    println("❌ $error")
-                }
-            } catch (e: Exception) {
-                val error = "Network error: ${e.message}"
-                _currentDutyStatus.value = DutyStatusUiState.Error(error)
-                println("❌ $error")
-                e.printStackTrace()
-            }
+    /**
+     * Check Bluetooth status and request enable if disabled.
+     * Should be called when Dashboard loads.
+     */
+    fun checkBluetoothAndPrompt() {
+        if (!bleManager.isBluetoothEnabled()) {
+            android.util.Log.d("DashboardViewModel", "Bluetooth is OFF - requesting enable")
+            _showBluetoothEnableRequest.value = true
+        } else {
+            android.util.Log.d("DashboardViewModel", "Bluetooth is ON")
+            _showBluetoothEnableRequest.value = false
         }
     }
 
+    /**
+     * Dismiss the Bluetooth enable request
+     */
+    fun dismissBluetoothRequest() {
+        _showBluetoothEnableRequest.value = false
+    }
+
+    /**
+     * Purge (delete) all unidentified driving events from the ELD device.
+     * Call this after the driver has claimed/reviewed the UD events.
+     */
+    fun purgeUnidentifiedEvents() {
+        android.util.Log.d("DashboardViewModel", "📋 Purging UD events from device")
+        bleManager.purgeUnidentifiedEvents()
+        _unidentifiedEvents.value = emptyList()
+        _unidentifiedEventsCount.value = 0
+    }
+
+    /**
+     * Called when user enabled Bluetooth.
+     * Automatically starts scanning for ELD device.
+     */
+    fun onBluetoothEnabled() {
+        _showBluetoothEnableRequest.value = false
+        android.util.Log.d("DashboardViewModel", "Bluetooth enabled by user - auto-starting scan")
+
+        // Automatically start scanning for ELD after Bluetooth is enabled
+        if (bleManager.hasRequiredPermissions()) {
+            bleManager.startScan()
+        }
+    }
+
+    /**
+     * Load current duty status.
+     * NOTE: This is now just a trigger - actual data comes from Flow observing local DB.
+     * The initial sync populates the local DB, and Flow automatically updates UI.
+     */
+    fun loadCurrentDutyStatus(token: String) {
+        // Flow already observes local DB and updates UI automatically.
+        // This function is kept for backward compatibility but does nothing special.
+        android.util.Log.d("DashboardViewModel", "loadCurrentDutyStatus called - Flow handles UI updates")
+    }
+
+    /**
+     * Change duty status.
+     * ALWAYS saves locally first, then queues for sync to server.
+     * UI updates automatically via Flow observing local database.
+     */
     fun changeDutyStatus(
         token: String,
         newStatus: DutyStatusType,
@@ -355,75 +636,62 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     ) {
         viewModelScope.launch {
             android.util.Log.d("DashboardViewModel", "════════════════════════════════════════════════════════")
-            android.util.Log.d("DashboardViewModel", "🔄 MANUAL STATUS CHANGE REQUEST")
+            android.util.Log.d("DashboardViewModel", "🔄 STATUS CHANGE REQUEST (Local-First)")
             android.util.Log.d("DashboardViewModel", "   New Status: $newStatus")
-            android.util.Log.d("DashboardViewModel", "   Location: $location")
-            android.util.Log.d("DashboardViewModel", "   Notes: $notes")
-            android.util.Log.d("DashboardViewModel", "   Vehicle ID: $vehicleId")
-            android.util.Log.d("DashboardViewModel", "   Token: ${token.take(20)}...")
             android.util.Log.d("DashboardViewModel", "════════════════════════════════════════════════════════")
 
             _statusChangeMessage.value = "Changing to $newStatus..."
 
             try {
                 // Get current location from BLE device or GPS
-                val currentLocation = locationService.getCurrentLocation()
+                // Use getLocationWithFallback() which WAITS for location - essential for Huawei phones
+                val currentLocation = locationService.getLocationWithFallback(timeoutMs = 5000)
                 val eldData = bleManager.eldData.value
 
-                android.util.Log.d("DashboardViewModel", "📍 Location data:")
-                android.util.Log.d("DashboardViewModel", "   GPS Lat: ${currentLocation?.latitude}")
-                android.util.Log.d("DashboardViewModel", "   GPS Lon: ${currentLocation?.longitude}")
-                android.util.Log.d("DashboardViewModel", "   Address: ${currentLocation?.address}")
-                android.util.Log.d("DashboardViewModel", "📊 ELD data:")
-                android.util.Log.d("DashboardViewModel", "   Odometer: ${eldData?.odometer}")
-                android.util.Log.d("DashboardViewModel", "   Engine Hours: ${eldData?.engineHours}")
+                // ALWAYS use FMCSA-compliant location format if we have coordinates
+                // Format: "{X} mi. {direction} of {city}, {state}"
+                // IMPORTANT: Ignore passed location parameter - it might have old format
+                val locationText = if (currentLocation != null) {
+                    try {
+                        locationService.getFMCSALocation(currentLocation.latitude, currentLocation.longitude)
+                    } catch (e: Exception) {
+                        android.util.Log.w("DashboardViewModel", "FMCSA format failed: ${e.message}")
+                        "${String.format("%.4f", currentLocation.latitude)}, ${String.format("%.4f", currentLocation.longitude)}"
+                    }
+                } else {
+                    // No coordinates - use passed location only as last resort
+                    location?.ifBlank { null }
+                }
 
-                // Use provided location text or get from coordinates
-                val locationText = location?.ifBlank { null }
-                    ?: currentLocation?.address
+                // Convert odometer from kilometers to miles (ELD sends km, backend expects miles)
+                val odometerMiles = eldData?.odometer?.let { it * 0.621371 }
 
                 val request = DutyStatusChangeRequest(
                     dutyStatus = newStatus,
                     vehicleId = vehicleId,
-                    deviceId = null,
+                    deviceId = com.eld.driver.ELDDriverApplication.getCurrentDeviceId(),
                     latitude = currentLocation?.latitude,
                     longitude = currentLocation?.longitude,
                     location = locationText,
-                    odometer = eldData?.odometer,
+                    odometer = odometerMiles,
                     engineHours = eldData?.engineHours,
                     note = notes,
                     shippingDocumentNumber = null,
                     trailerNumber = null
                 )
 
-                android.util.Log.d("DashboardViewModel", "📤 Sending request:")
-                android.util.Log.d("DashboardViewModel", "   $request")
+                // ALWAYS save locally first - this is the source of truth
+                // UI updates automatically via Flow observing local DB
+                val result = repository.changeDutyStatus(request)
 
-                val response = apiService.changeDutyStatus(token, request)
-
-                android.util.Log.d("DashboardViewModel", "📥 Response received:")
-                android.util.Log.d("DashboardViewModel", "   HTTP Code: ${response.code()}")
-                android.util.Log.d("DashboardViewModel", "   Is Successful: ${response.isSuccessful}")
-
-                if (response.isSuccessful) {
-                    val apiResponse = response.body()
-                    android.util.Log.d("DashboardViewModel", "   Body: $apiResponse")
-
-                    if (apiResponse?.success == true && apiResponse.data != null) {
-                        _currentDutyStatus.value = DutyStatusUiState.Success(apiResponse.data)
-                        android.util.Log.d("DashboardViewModel", "✅ SUCCESS! Changed to: ${apiResponse.data.dutyStatus}")
-                        _statusChangeMessage.value = "✅ Changed to ${apiResponse.data.dutyStatus}"
-                        onSuccess()
-                    } else {
-                        val error = apiResponse?.error ?: "Unknown error - success=false"
-                        android.util.Log.e("DashboardViewModel", "❌ API returned error: $error")
-                        _statusChangeMessage.value = "❌ Error: $error"
-                    }
+                if (result.isSuccess) {
+                    android.util.Log.d("DashboardViewModel", "✅ Saved locally, queued for sync")
+                    _statusChangeMessage.value = "✅ Changed to $newStatus"
+                    onSuccess()
                 } else {
-                    val errorBody = response.errorBody()?.string()
-                    android.util.Log.e("DashboardViewModel", "❌ HTTP Error: ${response.code()} ${response.message()}")
-                    android.util.Log.e("DashboardViewModel", "   Error body: $errorBody")
-                    _statusChangeMessage.value = "❌ HTTP ${response.code()}: $errorBody"
+                    val error = result.exceptionOrNull()?.message ?: "Unknown error"
+                    android.util.Log.e("DashboardViewModel", "❌ Local save failed: $error")
+                    _statusChangeMessage.value = "❌ Error: $error"
                 }
             } catch (e: Exception) {
                 android.util.Log.e("DashboardViewModel", "❌ EXCEPTION:", e)
@@ -457,22 +725,144 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun loadHOSStatus(token: String) {
-        // TODO: When HOS status endpoint is available, implement this
-        // For now, use mock data
-        _hosStatus.value = HOSStatus(
-            breakTimeRemaining = 480,      // 08:00 remaining
-            driveTimeRemaining = 660,      // 11:00 remaining
-            shiftTimeRemaining = 840,      // 14:00 remaining
-            cycleTimeRemaining = 4200,     // 70:00 remaining
-            breakTimeUsed = 0,
-            driveTimeUsed = 0,
-            shiftTimeUsed = 0,
-            cycleTimeUsed = 0,
-            breakTimeTotal = 480,          // 08:00 total
-            driveTimeTotal = 660,          // 11:00 total
-            shiftTimeTotal = 840,          // 14:00 total
-            cycleTimeTotal = 4200          // 70:00 total
+        viewModelScope.launch {
+            // HOS is now calculated locally from duty status events
+            // The calculation happens automatically via the HOSService
+            // Just trigger a recalculation to ensure fresh data
+            repository.recalculateHOS()
+
+            // The result will be emitted through the Flow we're observing in init {}
+            android.util.Log.d("DashboardViewModel", "📊 HOS recalculation triggered")
+        }
+    }
+
+    /**
+     * Start HOS and sync services after login.
+     */
+    fun startServices() {
+        repository.startServices()
+        android.util.Log.d("DashboardViewModel", "🚀 HOS/Sync services started")
+    }
+
+    /**
+     * Reset ViewModel state for new user (call on logout).
+     * This ensures the next user gets fresh data.
+     */
+    fun resetForNewUser() {
+        android.util.Log.d("DashboardViewModel", "🔄 Resetting ViewModel for new user")
+        initialSyncCompleted = false
+        isInitialized = false
+        _isInitialLoading.value = true
+        _currentDutyStatus.value = DutyStatusUiState.Loading
+        _hosStatus.value = null
+        _hosCalculationResult.value = null
+        _pendingSyncCount.value = 0
+        _eldConnectionStatus.value = ELDConnectionStatus.DISCONNECTED
+        _debugLogs.value = emptyList()
+    }
+
+    /**
+     * Update foreground notification with current duty status and ELD connection.
+     */
+    private fun updateForegroundNotification(dutyStatus: DutyStatusType) {
+        val isEldConnected = _eldConnectionStatus.value == ELDConnectionStatus.CONNECTED
+        ELDForegroundService.updateStatus(
+            context = getApplication(),
+            dutyStatus = dutyStatus,
+            eldConnected = isEldConnected
         )
+    }
+
+    /**
+     * Perform initial sync on login.
+     * Only runs ONCE per session - subsequent calls are ignored.
+     * BLOCKS loading screen until sync + HOS calculation completes.
+     */
+    fun performInitialSync() {
+        // Only run once per session
+        if (initialSyncCompleted) {
+            android.util.Log.d("DashboardViewModel", "📥 Initial sync already completed, skipping")
+            return
+        }
+
+        viewModelScope.launch {
+            android.util.Log.d("DashboardViewModel", "📥 Starting initial sync (loading screen active)...")
+
+            // Keep loading screen visible until sync completes
+            _isInitialLoading.value = true
+
+            val result = repository.performInitialSync()
+            if (result.isSuccess) {
+                android.util.Log.d("DashboardViewModel", "✅ Initial sync completed")
+                // Recalculate HOS after sync completes
+                repository.recalculateHOS()
+                android.util.Log.d("DashboardViewModel", "📊 HOS recalculated after initial sync")
+
+                // Load fresh HOS into state
+                _hosStatus.value = repository.getHOSStatusModel()
+                android.util.Log.d("DashboardViewModel", "📊 HOS loaded: ${_hosStatus.value}")
+            } else {
+                android.util.Log.e("DashboardViewModel", "❌ Initial sync failed: ${result.exceptionOrNull()?.message}")
+            }
+
+            initialSyncCompleted = true
+
+            // NOW we can dismiss the loading screen - data is ready
+            _isInitialLoading.value = false
+            android.util.Log.d("DashboardViewModel", "✅ Initial sync + HOS complete - dismissing loading screen")
+        }
+    }
+
+    /**
+     * Force sync now - manual trigger for testing
+     */
+    suspend fun forceSyncNow() {
+        android.util.Log.d("DashboardViewModel", "🔄 Force sync triggered by user")
+        _statusChangeMessage.value = "Syncing..."
+        _lastSyncResult.value = "Syncing at ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())}..."
+
+        try {
+            val pendingBefore = repository.getPendingSyncCount()
+            val count = repository.forceSyncQueue()
+            val pendingAfter = repository.getPendingSyncCount()
+
+            val resultMsg = buildString {
+                appendLine("Time: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())}")
+                appendLine("Processed: $count items")
+                appendLine("Before: $pendingBefore pending")
+                appendLine("After: $pendingAfter pending")
+                if (count == 0 && pendingBefore > 0) {
+                    appendLine("⚠️ Items not synced!")
+                }
+            }
+            _lastSyncResult.value = resultMsg
+
+            android.util.Log.d("DashboardViewModel", "✅ Force sync completed: $count items processed")
+            _statusChangeMessage.value = if (count > 0) {
+                "✅ Synced $count items"
+            } else if (pendingBefore > 0) {
+                "⚠️ Sync failed - check debug"
+            } else {
+                "No pending items"
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("DashboardViewModel", "❌ Force sync failed: ${e.message}")
+            _lastSyncResult.value = "ERROR: ${e.message}"
+            _statusChangeMessage.value = "❌ Sync failed: ${e.message}"
+        }
+
+        kotlinx.coroutines.delay(3000)
+        _statusChangeMessage.value = null
+    }
+
+    /**
+     * Clear sync queue (for testing/debug)
+     */
+    suspend fun clearSyncQueue() {
+        repository.clearSyncQueue()
+        _statusChangeMessage.value = "Queue cleared"
+        kotlinx.coroutines.delay(2000)
+        _statusChangeMessage.value = null
     }
 
     fun getDurationText(startTime: String): String {

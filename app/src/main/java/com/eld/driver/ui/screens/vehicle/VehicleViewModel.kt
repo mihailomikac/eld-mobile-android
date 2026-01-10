@@ -1,10 +1,19 @@
 package com.eld.driver.ui.screens.vehicle
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.util.Log
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.eld.driver.ELDDriverApplication
+import com.eld.driver.ble.GeometrisWQManager
 import com.eld.driver.data.api.ApiService
+import com.eld.driver.data.models.FmcsaEventRecordOrigin
 import com.eld.driver.data.models.MobileVehicleListData
+import com.eld.driver.data.models.TickEventRequest
+import com.eld.driver.data.models.TickEventType
 import com.eld.driver.data.models.Vehicle
+import com.eld.driver.location.LocationService
+import com.eld.driver.service.ELDForegroundService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -12,12 +21,22 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 /**
  * VehicleViewModel - Handles vehicle selection and confirmation
  */
-class VehicleViewModel : ViewModel() {
+class VehicleViewModel(application: Application) : AndroidViewModel(application) {
+    companion object {
+        private const val TAG = "VehicleViewModel"
+    }
+
     private val apiService = ApiService.getInstance()
+    private val locationService = LocationService.getInstance(application)
+    private val bleManager = GeometrisWQManager.getInstance(application)
 
     private val _uiState = MutableStateFlow<VehicleUiState>(VehicleUiState.Loading)
     val uiState: StateFlow<VehicleUiState> = _uiState.asStateFlow()
@@ -90,15 +109,126 @@ class VehicleViewModel : ViewModel() {
     }
 
     fun selectVehicle(vehicleId: Int, onSuccess: () -> Unit) {
-        // Just set the selected vehicle locally (no API call needed - matches iOS behavior)
+        // Find vehicle to get its ELD MAC address and device ID
+        val vehicle = _allVehicles.value.find { it.id == vehicleId }
+        val eldMacAddress = vehicle?.eldMacAddress
+        val deviceId = vehicle?.deviceId
+
+        // Set vehicle ID, ELD MAC address, and device ID in global state
         _currentVehicleId.value = vehicleId
-        println("✅ Vehicle selected: ID $vehicleId")
+        com.eld.driver.ELDDriverApplication.setCurrentVehicle(vehicleId, eldMacAddress, deviceId)
+
+        Log.d(TAG, "✅ Vehicle selected: ID $vehicleId, ELD MAC: $eldMacAddress, Device ID: $deviceId")
         onSuccess()
+    }
+
+    /**
+     * Confirm vehicle selection and send LOGIN tick event.
+     * Called when user clicks "Accept" on VehicleConfirmationScreen.
+     * This completes the login flow and navigates to dashboard.
+     */
+    fun confirmVehicleSelection(authToken: String, onComplete: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                Log.d(TAG, "📤 Sending LOGIN tick event after vehicle confirmation...")
+
+                // Get current location and telemetry
+                val currentLocation = locationService.getCurrentLocation()
+                val fmcsaLocation = if (currentLocation != null) {
+                    locationService.getFMCSALocation(currentLocation.latitude, currentLocation.longitude)
+                } else null
+                val eldData = bleManager.eldData.value
+                val odometerMiles = eldData?.odometer?.let { it * 0.621371 }
+
+                // Create ISO 8601 timestamp
+                val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+                isoFormat.timeZone = TimeZone.getTimeZone("UTC")
+                val timestamp = isoFormat.format(Date())
+
+                val request = TickEventRequest(
+                    eventType = TickEventType.LOGIN,
+                    vehicleId = ELDDriverApplication.getCurrentVehicleId(),
+                    deviceId = ELDDriverApplication.getCurrentDeviceId(),
+                    latitude = currentLocation?.latitude,
+                    longitude = currentLocation?.longitude,
+                    location = fmcsaLocation,
+                    odometer = odometerMiles,
+                    engineHours = eldData?.engineHours,
+                    note = "Driver logged in",
+                    timestamp = timestamp,
+                    eventRecordOrigin = FmcsaEventRecordOrigin.DRIVER
+                )
+                val response = apiService.createTickEvent(authToken, request)
+                if (response.isSuccessful) {
+                    Log.d(TAG, "✅ LOGIN tick event sent successfully with vehicleId=${_currentVehicleId.value}")
+                } else {
+                    Log.w(TAG, "⚠️ LOGIN tick event failed: ${response.code()} ${response.message()}")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ Failed to send LOGIN tick event: ${e.message}", e)
+            }
+
+            // Start foreground service to keep app running in background
+            val vehicle = _allVehicles.value.find { it.id == _currentVehicleId.value }
+            ELDForegroundService.start(getApplication())
+            ELDForegroundService.updateStatus(
+                context = getApplication(),
+                dutyStatus = null, // Will be updated by DashboardViewModel
+                eldConnected = false,
+                vehicleName = vehicle?.displayName
+            )
+            Log.d(TAG, "🚀 Foreground service started after vehicle confirmation")
+
+            // Always navigate to dashboard after attempting to send tick event
+            onComplete()
+        }
     }
 
     fun clearError() {
         if (_uiState.value is VehicleUiState.Error) {
             _uiState.value = VehicleUiState.Success
+        }
+    }
+
+    /**
+     * Reset ViewModel state for new user (call on logout).
+     */
+    fun resetForNewUser() {
+        _uiState.value = VehicleUiState.Loading
+        _searchQuery.value = ""
+        _allVehicles.value = emptyList()
+        _filteredVehicles.value = emptyList()
+        _currentVehicleId.value = null
+    }
+
+    /**
+     * Restore vehicle state on session restore.
+     * Loads vehicles from API and sets the current vehicle ID from storage.
+     */
+    fun restoreVehicleSession(token: String) {
+        val storedVehicleId = ELDDriverApplication.getCurrentVehicleId()
+        Log.d(TAG, "🔄 Restoring vehicle session, storedVehicleId=$storedVehicleId")
+
+        if (storedVehicleId != null) {
+            _currentVehicleId.value = storedVehicleId
+        }
+
+        // Load vehicles from API so selectedVehicle can find the vehicle object
+        viewModelScope.launch {
+            try {
+                val response = apiService.getVehicles(token)
+                if (response.isSuccessful) {
+                    val apiResponse = response.body()
+                    if (apiResponse?.success == true && apiResponse.data != null) {
+                        _allVehicles.value = apiResponse.data.vehicles
+                        _filteredVehicles.value = apiResponse.data.vehicles
+                        _uiState.value = VehicleUiState.Success
+                        Log.d(TAG, "✅ Vehicle session restored: ${apiResponse.data.vehicles.size} vehicles loaded, current=$storedVehicleId")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ Failed to load vehicles during session restore: ${e.message}")
+            }
         }
     }
 }

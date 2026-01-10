@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -93,10 +94,33 @@ dependencies {
     // JWT decoding
     implementation("com.auth0.android:jwtdecode:2.0.2")
 
+    // Security - Encrypted SharedPreferences
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // Google Play Services - Location
     implementation("com.google.android.gms:play-services-location:21.0.1")
+
+    // Room Database
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
+
+    // WorkManager (for background sync)
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    // SignalR client for real-time notifications (force logout, etc.)
+    implementation("com.microsoft.signalr:signalr:7.0.0")
+
+    // RxJava3 (required by SignalR client for withAccessTokenProvider)
+    implementation("io.reactivex.rxjava3:rxjava:3.1.5")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Testing
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation("io.mockk:mockk:1.13.8")
+    testImplementation("com.google.truth:truth:1.1.5")
 }

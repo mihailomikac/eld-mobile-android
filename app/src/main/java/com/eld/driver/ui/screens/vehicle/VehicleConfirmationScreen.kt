@@ -1,5 +1,6 @@
 package com.eld.driver.ui.screens.vehicle
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,6 +35,23 @@ fun VehicleConfirmationScreen(
 
     // Get the current vehicle
     val currentVehicle = filteredVehicles.firstOrNull { it.id == currentVehicleId }
+
+    // Back handler - go back to vehicle selection
+    BackHandler(enabled = true) {
+        navController.navigate("vehicle_selection") {
+            popUpTo("vehicle_confirmation") { inclusive = true }
+        }
+    }
+
+    // Redirect to vehicle_selection if no vehicle is selected
+    LaunchedEffect(currentVehicleId) {
+        if (currentVehicleId == null) {
+            android.util.Log.e("VehicleConfirmationScreen", "❌ No vehicle selected - redirecting to vehicle_selection")
+            navController.navigate("vehicle_selection") {
+                popUpTo("vehicle_confirmation") { inclusive = true }
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -213,9 +231,11 @@ fun VehicleConfirmationScreen(
                     // Accept button
                     Button(
                         onClick = {
-                            // Navigate to dashboard
-                            navController.navigate("dashboard") {
-                                popUpTo("login") { inclusive = true }
+                            // Send LOGIN tick event and navigate to dashboard
+                            viewModel.confirmVehicleSelection(authToken) {
+                                navController.navigate("dashboard") {
+                                    popUpTo(0) { inclusive = true }  // Clear entire back stack
+                                }
                             }
                         },
                         modifier = Modifier

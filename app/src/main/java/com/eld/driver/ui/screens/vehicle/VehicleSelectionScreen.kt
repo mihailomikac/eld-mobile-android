@@ -1,5 +1,6 @@
 package com.eld.driver.ui.screens.vehicle
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -8,9 +9,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,12 +37,21 @@ import com.eld.driver.ui.theme.*
 fun VehicleSelectionScreen(
     navController: NavController,
     authToken: String,
-    viewModel: VehicleViewModel = viewModel()
+    viewModel: VehicleViewModel = viewModel(),
+    onLogout: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val filteredVehicles by viewModel.filteredVehicles.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val currentVehicleId by viewModel.currentVehicleId.collectAsState()
+    val isLoading = uiState is VehicleUiState.Loading
+
+    // BLOCK back navigation - user MUST select a vehicle to proceed
+    // This prevents the bug where pressing back would navigate to dashboard without a vehicle
+    BackHandler(enabled = true) {
+        // Do nothing - user must select a vehicle
+        android.util.Log.d("VehicleSelectionScreen", "Back pressed - blocked (must select vehicle)")
+    }
 
     // Load vehicles on first composition
     LaunchedEffect(Unit) {
@@ -49,12 +61,43 @@ fun VehicleSelectionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                navigationIcon = {
+                    // Back to Login button
+                    IconButton(onClick = onLogout) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back to Login",
+                            tint = Color.White
+                        )
+                    }
+                },
                 title = {
                     Text(
                         text = "Select Vehicle",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
+                },
+                actions = {
+                    // Refresh button
+                    IconButton(
+                        onClick = { viewModel.loadVehicles(authToken) },
+                        enabled = !isLoading
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh vehicles",
+                                tint = Color.White
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Blue600,

@@ -6,6 +6,16 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Background location for Android 10+ (required for ELD tracking while screen off) -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- Foreground service permissions (required for background operation) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Post notifications for Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Bluetooth permissions -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
@@ -44,6 +54,13 @@
         <service
             android:name="com.geometris.wqlib.WQSmartService"
             android:enabled="true" />
+
+        <!-- ELD Foreground Service - Keeps app running in background for FMCSA compliance -->
+        <service
+            android:name=".service.ELDForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 
 </manifest>

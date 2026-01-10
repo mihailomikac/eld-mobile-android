@@ -28,6 +28,7 @@ import com.eld.driver.ui.components.CurvedWaveShape
 import com.eld.driver.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.TimeZone
 
 /**
  * Driver Inspection Screen - Form for DVIR inspection
@@ -53,23 +54,54 @@ fun DriverInspectionScreen(
     val selectedAssetDefects by dvirViewModel.selectedAssetDefects.collectAsState()
     val createInspectionState by dvirViewModel.createInspectionState.collectAsState()
     val currentLocation by dvirViewModel.currentLocation.collectAsState()
+    val currentOdometer by dvirViewModel.currentOdometer.collectAsState()
+    val eldConnectionState by dvirViewModel.eldConnectionState.collectAsState()
+    val eldData by dvirViewModel.eldData.collectAsState()
 
-    // Load defects form and location
+    // Load defects form, location, and odometer from ELD
     LaunchedEffect(vehicleId) {
         dvirViewModel.loadVehicleDefects(authToken, vehicleId)
         dvirViewModel.refreshLocation()
+        dvirViewModel.refreshOdometer()
     }
 
-    // Update location field
+    // Re-fetch odometer when ELD connection state changes
+    LaunchedEffect(eldConnectionState) {
+        dvirViewModel.refreshOdometer()
+    }
+
+    // Update location field from GPS
     LaunchedEffect(currentLocation) {
         if (!currentLocation.isNullOrBlank() && location.isBlank()) {
             location = currentLocation ?: ""
         }
     }
 
-    // Current time formatted
-    val inspectionTime = remember {
-        SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
+    // Update odometer field from ELD device (via ViewModel)
+    LaunchedEffect(currentOdometer) {
+        if (currentOdometer != null && odometer.isBlank()) {
+            // Format to whole number (miles)
+            odometer = currentOdometer!!.toLong().toString()
+        }
+    }
+
+    // Also directly watch ELD data for odometer updates
+    // This catches cases where odometer data arrives after screen opens
+    LaunchedEffect(eldData?.odometer) {
+        val odometerKm = eldData?.odometer
+        if (odometerKm != null && odometerKm > 0 && odometer.isBlank()) {
+            // Convert km to miles (1 km = 0.621371 miles)
+            val odometerMiles = (odometerKm * 0.621371).toLong()
+            odometer = odometerMiles.toString()
+        }
+    }
+
+    // Current time formatted in COMPANY TIMEZONE
+    val companyTimeZone = remember { dvirViewModel.getCompanyTimeZone() }
+    val inspectionTime = remember(companyTimeZone) {
+        SimpleDateFormat("hh:mm a", Locale.US).apply {
+            timeZone = companyTimeZone
+        }.format(Date())
     }
 
     val isLoading = createInspectionState is CreateInspectionState.Loading

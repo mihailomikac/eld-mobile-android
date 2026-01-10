@@ -1,6 +1,7 @@
 package com.eld.driver.ui.screens.dvir
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,9 +20,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.eld.driver.data.models.DutyStatusType
+import com.eld.driver.data.models.InspectionListItem
 import com.eld.driver.data.models.Vehicle
 import com.eld.driver.ui.components.CurvedWaveShape
 import com.eld.driver.ui.theme.*
+import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * DVIR Main Screen - Entry point for DVIR inspections
@@ -41,13 +48,16 @@ fun DVIRScreen(
     var showOnDutyConfirmDialog by remember { mutableStateOf(false) }
     var locationForStatusChange by remember { mutableStateOf("") }
 
-    // Set vehicle in viewmodel
+    // Set vehicle in viewmodel and load today's inspections
     LaunchedEffect(currentVehicle) {
         dvirViewModel.setCurrentVehicle(currentVehicle)
         dvirViewModel.refreshLocation()
+        dvirViewModel.loadTodayInspections(authToken, currentVehicle?.id)
     }
 
     val currentLocation by dvirViewModel.currentLocation.collectAsState()
+    val todayInspections by dvirViewModel.todayInspections.collectAsState()
+    val inspectionsLoading by dvirViewModel.inspectionsLoading.collectAsState()
 
     // Update location in dialog
     LaunchedEffect(currentLocation) {
@@ -89,7 +99,14 @@ fun DVIRScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { navController.popBackStack() }) {
+                    IconButton(onClick = {
+                        // Navigate explicitly to dashboard instead of popBackStack
+                        // This prevents navigation state issues
+                        navController.navigate("dashboard") {
+                            popUpTo("dvir") { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "Back",
@@ -174,6 +191,30 @@ fun DVIRScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = AccentRed
                     )
+                }
+
+                // Today's Inspections List
+                Spacer(modifier = Modifier.height(Spacing.md))
+
+                if (inspectionsLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = Blue600,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    // Show only the last (most recent) inspection for today
+                    val lastInspection = todayInspections.firstOrNull()
+                    if (lastInspection != null) {
+                        val companyZoneId = remember { dvirViewModel.getCompanyZoneId() }
+                        InspectionRow(
+                            inspection = lastInspection,
+                            companyZoneId = companyZoneId,
+                            onClick = {
+                                navController.navigate("inspection_detail/${lastInspection.id}")
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -270,4 +311,68 @@ private fun OnDutyConfirmDialog(
             }
         }
     )
+}
+
+/**
+ * Row displaying a single inspection with date/time and sync status
+ */
+@Composable
+private fun InspectionRow(
+    inspection: InspectionListItem,
+    companyZoneId: ZoneId,
+    onClick: () -> Unit
+) {
+    // Format the date and time in company timezone
+    val formattedDateTime = remember(inspection.inspectionTime, companyZoneId) {
+        try {
+            val timeStr = inspection.inspectionTime
+            val dateTime = if (timeStr.endsWith("Z")) {
+                Instant.parse(timeStr).atZone(companyZoneId).toLocalDateTime()
+            } else {
+                // Server sends in UTC, convert to company timezone
+                java.time.LocalDateTime.parse(timeStr)
+                    .atZone(ZoneId.of("UTC"))
+                    .withZoneSameInstant(companyZoneId)
+                    .toLocalDateTime()
+            }
+            val dateFormatter = DateTimeFormatter.ofPattern("EEEE, MMM d", Locale.getDefault())
+            val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
+            "${dateTime.format(dateFormatter)} ${dateTime.format(timeFormatter)}"
+        } catch (e: Exception) {
+            inspection.inspectionTime
+        }
+    }
+
+    // Determine sync status - all uploaded inspections are "synced"
+    val isSynced = true  // If it came from API, it's synced
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF9FAFB)),
+        shape = RoundedCornerShape(8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = formattedDateTime,
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextPrimary
+            )
+
+            Text(
+                text = if (isSynced) "Synced" else "Pending",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isSynced) TextSecondary else AccentOrange
+            )
+        }
+    }
 }

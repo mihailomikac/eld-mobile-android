@@ -2,6 +2,33 @@ package com.eld.driver.data.models
 
 import com.google.gson.annotations.SerializedName
 
+/**
+ * Request model for sending calculated HOS to backend
+ * Must match backend's MobileDriverHosUpdateRequest exactly
+ */
+data class HOSUpdateRequest(
+    @SerializedName("date") val date: String,  // ISO 8601 format: "2025-11-28T00:00:00Z"
+    @SerializedName("breakMinutes") val breakMinutes: Int,  // Remaining minutes
+    @SerializedName("driveMinutes") val driveMinutes: Int,  // Remaining minutes
+    @SerializedName("shiftMinutes") val shiftMinutes: Int,  // Remaining minutes
+    @SerializedName("cycleMinutes") val cycleMinutes: Int,  // Remaining minutes
+    @SerializedName("cycleLeftForTomorrow") val cycleLeftForTomorrow: Int? = null
+)
+
+/**
+ * Response model for HOS from backend
+ */
+data class HOSResponse(
+    @SerializedName("date") val date: String,
+    @SerializedName("breakMinutes") val breakMinutes: Int,
+    @SerializedName("driveMinutes") val driveMinutes: Int,
+    @SerializedName("shiftMinutes") val shiftMinutes: Int,
+    @SerializedName("cycleMinutes") val cycleMinutes: Int,
+    @SerializedName("cycleLeftForTomorrow") val cycleLeftForTomorrow: Int?,
+    @SerializedName("lastSyncTime") val lastSyncTime: String?,
+    @SerializedName("isEdited") val isEdited: Boolean
+)
+
 data class HOSStatus(
     @SerializedName("breakTimeRemaining") val breakTimeRemaining: Int,
     @SerializedName("driveTimeRemaining") val driveTimeRemaining: Int,
@@ -52,3 +79,41 @@ data class HOSStatus(
         return String.format("%02d:%02d", hours, mins)
     }
 }
+
+/**
+ * Request model for syncing HOS data including violations
+ * Must match backend's MobileHosSyncRequest exactly
+ */
+data class HOSSyncRequest(
+    @SerializedName("breakMinutes") val breakMinutes: Int,
+    @SerializedName("driveMinutes") val driveMinutes: Int,
+    @SerializedName("shiftMinutes") val shiftMinutes: Int,
+    @SerializedName("cycleMinutes") val cycleMinutes: Int,
+    @SerializedName("cycleLeftForTomorrow") val cycleLeftForTomorrow: Int? = null,
+    /** List of active violations (if any) - uses HosViolationItem, not the batch request */
+    @SerializedName("activeViolations") val activeViolations: List<HosViolationItem>? = null
+)
+
+/**
+ * Response model for HOS sync
+ */
+data class HOSSyncResponse(
+    @SerializedName("syncTime") val syncTime: String,
+    @SerializedName("violationsRecorded") val violationsRecorded: Int,
+    @SerializedName("message") val message: String
+)
+
+/**
+ * Response model for creating violations (BATCH)
+ * Must match backend's MobileCreateViolationResponse exactly
+ */
+data class CreateViolationResponse(
+    /** List of created violation IDs */
+    @SerializedName("violationIds") val violationIds: List<Int> = emptyList(),
+    /** Number of violations deleted before creating new ones */
+    @SerializedName("deletedCount") val deletedCount: Int = 0,
+    /** Number of violations created */
+    @SerializedName("createdCount") val createdCount: Int = 0,
+    /** Descriptive message about the operation result */
+    @SerializedName("message") val message: String = ""
+)

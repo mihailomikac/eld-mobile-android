@@ -14,6 +14,7 @@ sealed class BleConnectionState {
     data class Connected(val device: BluetoothDevice) : BleConnectionState()
     data class ServicesDiscovered(val device: BluetoothDevice) : BleConnectionState()
     data class Ready(val device: BluetoothDevice) : BleConnectionState()  // Notifications enabled, ready to receive data
+    data class Reconnecting(val device: BluetoothDevice, val attempt: Int, val maxAttempts: Int) : BleConnectionState()  // Signal lost, auto-reconnecting
     data class Error(val message: String, val throwable: Throwable? = null) : BleConnectionState()
 }
 

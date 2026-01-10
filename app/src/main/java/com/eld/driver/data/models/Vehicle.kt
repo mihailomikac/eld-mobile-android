@@ -9,7 +9,9 @@ data class Vehicle(
     @SerializedName("make") val make: String?,
     @SerializedName("model") val model: String?,
     @SerializedName("year") val year: Int?,
-    @SerializedName("active") val active: Boolean
+    @SerializedName("active") val active: Boolean,
+    @SerializedName("eldMacAddress") val eldMacAddress: String? = null,
+    @SerializedName("deviceId") val deviceId: Int? = null
 ) {
     val vehicleNumber: String get() = vehicleId ?: "Unknown"
 
@@ -42,5 +44,6 @@ data class VehicleSearchResponse(
 enum class ELDConnectionStatus(val displayText: String) {
     DISCONNECTED("Connect"),
     PAIRING("PAIRING"),
+    RECONNECTING("Reconnecting..."),
     CONNECTED("Connected")
 }

@@ -122,7 +122,13 @@ fun BleTestScreen(
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { navController.popBackStack() }) {
+                IconButton(onClick = {
+                    // Navigate explicitly to dashboard instead of popBackStack
+                    navController.navigate("dashboard") {
+                        popUpTo("ble_test") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }) {
                     Icon(
                         Icons.Default.ArrowBack,
                         contentDescription = "Back",
@@ -553,6 +559,7 @@ fun ConnectionStatusCard(
                         is BleConnectionState.Connected -> "Connected"
                         is BleConnectionState.ServicesDiscovered -> "Discovering services..."
                         is BleConnectionState.Ready -> "Ready"
+                        is BleConnectionState.Reconnecting -> "Reconnecting ${connectionState.attempt}/${connectionState.maxAttempts}..."
                         is BleConnectionState.Error -> "Error"
                     },
                     style = MaterialTheme.typography.bodyMedium,

@@ -23,13 +23,19 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.eld.driver.data.local.TokenManager
 import com.eld.driver.data.models.DutyStatusEventDto
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.eld.driver.data.models.DutyStatusSummary
 import com.eld.driver.data.models.DutyStatusType
 import com.eld.driver.data.models.DriverEventsData
@@ -69,14 +75,24 @@ fun LogDetailScreen(
     authToken: String,
     logsViewModel: LogsViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     val logDetailState by logsViewModel.logDetailState.collectAsState()
     val certifyingDate by logsViewModel.certifyingDate.collectAsState()
 
-    // Parse and format the date for display
-    val displayDate = remember(date) {
+    // Get company timezone from TokenManager
+    val companyTimeZone = remember {
+        TokenManager.getInstance(context).getCompanyTimeZone()
+    }
+
+    // Parse and format the date for display (in company timezone)
+    val displayDate = remember(date, companyTimeZone) {
         try {
-            val inputFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-            val outputFormat = SimpleDateFormat("EEEE, MMM d", Locale.US)
+            val inputFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                timeZone = companyTimeZone
+            }
+            val outputFormat = SimpleDateFormat("EEEE, MMM d", Locale.US).apply {
+                timeZone = companyTimeZone
+            }
             val parsedDate = inputFormat.parse(date)
             parsedDate?.let { outputFormat.format(it) } ?: date
         } catch (e: Exception) {
@@ -87,6 +103,9 @@ fun LogDetailScreen(
     // Snackbar state
     val snackbarHostState = remember { SnackbarHostState() }
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
+
+    // Certification dialog state
+    var showCertificationDialog by remember { mutableStateOf(false) }
 
     // Load events for the date
     LaunchedEffect(date, authToken) {
@@ -218,6 +237,7 @@ fun LogDetailScreen(
                         eventsData = state.events,
                         displayDate = displayDate,
                         date = date,
+                        companyTimeZone = companyTimeZone,
                         isCertifying = certifyingDate == date,
                         onPreviousDay = {
                             // Navigate to previous day
@@ -248,22 +268,41 @@ fun LogDetailScreen(
                             } catch (e: Exception) { }
                         },
                         onCertify = {
-                            logsViewModel.certifyLog(
-                                token = authToken,
-                                date = date,
-                                onSuccess = {
-                                    snackbarMessage = "Log certified successfully"
-                                    logsViewModel.loadLogDetail(authToken, date)
-                                },
-                                onError = { error ->
-                                    snackbarMessage = "Error: $error"
-                                }
-                            )
+                            // Show FMCSA certification dialog first
+                            showCertificationDialog = true
                         }
                     )
                 }
             }
         }
+    }
+
+    // FMCSA Certification Dialog
+    if (showCertificationDialog) {
+        CertificationDialog(
+            onAgree = {
+                showCertificationDialog = false
+                logsViewModel.certifyLog(
+                    token = authToken,
+                    date = date,
+                    onSuccess = {
+                        // Show success message FIRST, then reload after a short delay
+                        // This ensures the snackbar appears before UI recomposition
+                        snackbarMessage = "Log certified successfully"
+                        MainScope().launch {
+                            delay(500)
+                            logsViewModel.loadLogDetail(authToken, date)
+                        }
+                    },
+                    onError = { error ->
+                        snackbarMessage = "Error: $error"
+                    }
+                )
+            },
+            onNotReady = {
+                showCertificationDialog = false
+            }
+        )
     }
 }
 
@@ -272,11 +311,48 @@ private fun LogDetailContent(
     eventsData: DriverEventsData,
     displayDate: String,
     date: String,
+    companyTimeZone: TimeZone,
     isCertifying: Boolean,
     onPreviousDay: () -> Unit,
     onNextDay: () -> Unit,
     onCertify: () -> Unit
 ) {
+    // Calculate navigation boundaries and isToday
+    val (canGoPrevious, canGoNext, isToday) = remember(date, companyTimeZone) {
+        try {
+            val format = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                timeZone = companyTimeZone
+            }
+            val currentDate = format.parse(date)
+            val today = Calendar.getInstance(companyTimeZone).apply {
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val oldestAllowed = Calendar.getInstance(companyTimeZone).apply {
+                time = today.time
+                add(Calendar.DAY_OF_YEAR, -7) // 7 days back from today (today + 7 previous)
+            }
+
+            val currentCal = Calendar.getInstance(companyTimeZone).apply {
+                time = currentDate!!
+            }
+
+            // Can go previous if current date is after oldest allowed
+            val canPrev = currentCal.after(oldestAllowed)
+            // Can go next if current date is before today
+            val canNext = currentCal.before(today)
+            // Check if this is today's date (cannot certify today)
+            val todayStr = format.format(today.time)
+            val isTodayDate = date == todayStr
+
+            Triple(canPrev, canNext, isTodayDate)
+        } catch (e: Exception) {
+            Triple(true, true, false)
+        }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -300,11 +376,14 @@ private fun LogDetailContent(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = onPreviousDay) {
+                        IconButton(
+                            onClick = onPreviousDay,
+                            enabled = canGoPrevious
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.ChevronLeft,
                                 contentDescription = "Previous Day",
-                                tint = TextPrimary
+                                tint = if (canGoPrevious) TextPrimary else TextSecondary.copy(alpha = 0.3f)
                             )
                         }
 
@@ -315,11 +394,14 @@ private fun LogDetailContent(
                             color = TextPrimary
                         )
 
-                        IconButton(onClick = onNextDay) {
+                        IconButton(
+                            onClick = onNextDay,
+                            enabled = canGoNext
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
                                 contentDescription = "Next Day",
-                                tint = TextPrimary
+                                tint = if (canGoNext) TextPrimary else TextSecondary.copy(alpha = 0.3f)
                             )
                         }
                     }
@@ -331,6 +413,7 @@ private fun LogDetailContent(
                         events = eventsData.dutyStatusEvents,
                         summary = eventsData.summary,
                         logDate = date,
+                        companyTimeZone = companyTimeZone,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(120.dp)
@@ -371,7 +454,7 @@ private fun LogDetailContent(
             }
         } else {
             items(eventsData.dutyStatusEvents) { event ->
-                EventRow(event = event)
+                EventRow(event = event, companyTimeZone = companyTimeZone)
                 Divider(color = Color(0xFFE5E7EB), thickness = 1.dp)
             }
         }
@@ -529,36 +612,47 @@ private fun LogDetailContent(
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (eventsData.isCertified) {
-                    Text(
-                        text = "Certified",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                } else {
-                    Button(
-                        onClick = onCertify,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Blue600),
-                        shape = RoundedCornerShape(8.dp),
-                        enabled = !isCertifying
-                    ) {
-                        if (isCertifying) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
+                when {
+                    eventsData.isCertified -> {
                         Text(
-                            text = "Certify",
+                            text = "Certified",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
                         )
+                    }
+                    isToday -> {
+                        // Today's log cannot be certified
+                        Text(
+                            text = "Today's log cannot be certified",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                    }
+                    else -> {
+                        Button(
+                            onClick = onCertify,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Blue600),
+                            shape = RoundedCornerShape(8.dp),
+                            enabled = !isCertifying
+                        ) {
+                            if (isCertifying) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = "Certify",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -588,6 +682,7 @@ private fun ELDGraph(
     events: List<DutyStatusEventDto>,
     summary: DutyStatusSummary?,
     logDate: String, // Format: yyyy-MM-dd
+    companyTimeZone: TimeZone,
     modifier: Modifier = Modifier
 ) {
     // All 25 time labels: M=Midnight, N=Noon (matching iOS design)
@@ -698,12 +793,15 @@ private fun ELDGraph(
                         return rowIndex * rowHeight + rowHeight / 2
                     }
 
-                    // Check if this log is for today
-                    val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                    // Check if this log is for today (in COMPANY TIMEZONE)
+                    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                        timeZone = companyTimeZone
+                    }
+                    val todayStr = dateFormat.format(Date())
                     val isToday = logDate == todayStr
 
-                    // Get current time (local time)
-                    val now = Calendar.getInstance()
+                    // Get current time in COMPANY TIMEZONE
+                    val now = Calendar.getInstance(companyTimeZone)
                     val currentDecimalHours = now.get(Calendar.HOUR_OF_DAY) +
                                               now.get(Calendar.MINUTE) / 60f
 
@@ -719,25 +817,100 @@ private fun ELDGraph(
                     val horizontalLineWidth = 4.5f  // Thicker for duration
                     val verticalLineWidth = 1.5f   // Thinner for transitions
 
-                    // Draw the ELD status line
+                    // Helper: Get event's start DATE (yyyy-MM-dd) in company timezone
+                    fun getEventStartDate(event: DutyStatusEventDto): String? {
+                        return try {
+                            val inputFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+                            inputFormat.timeZone = TimeZone.getTimeZone("UTC")
+                            val cleanTime = event.startTime.substringBefore("Z").substringBefore("+").take(19)
+                            val date = inputFormat.parse(cleanTime)
+                            if (date != null) {
+                                val outputFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                                outputFormat.timeZone = companyTimeZone
+                                outputFormat.format(date)
+                            } else null
+                        } catch (e: Exception) { null }
+                    }
+
+                    // Pre-calculate all event data (start/end hours, row indices) for proper transitions
+                    data class EventDrawData(
+                        val event: DutyStatusEventDto,
+                        val rowIndex: Int,
+                        val startHours: Float,
+                        val endHours: Float
+                    )
+
+                    val eventDrawDataList = mutableListOf<EventDrawData>()
+
                     sortedEvents.forEachIndexed { index, event ->
                         val rowIndex = getRowIndex(event.dutyStatus)
-                        val y = rowToY(rowIndex)
+                        val eventStartDate = getEventStartDate(event)
 
-                        // Get start time in LOCAL timezone (converted from UTC)
-                        val startHours = event.startTimeLocalHours
-                        val startX = hoursToX(startHours)
+                        // Get start time in COMPANY timezone (converted from UTC)
+                        var startHours = event.getStartTimeHours(companyTimeZone)
 
-                        // Get end time in LOCAL timezone (converted from UTC)
-                        // For ongoing events on today's log, extend to current time
-                        val endHours = if (event.endTimeLocalHours != null) {
-                            event.endTimeLocalHours!!
-                        } else if (isToday) {
-                            currentDecimalHours
-                        } else {
-                            24f // End of day for past logs
+                        // If event started BEFORE the log date, clamp to 0 (midnight start)
+                        if (eventStartDate != null && eventStartDate < logDate) {
+                            startHours = 0f
                         }
-                        val endX = hoursToX(endHours)
+
+                        // If event started AFTER the log date, skip it entirely
+                        if (eventStartDate != null && eventStartDate > logDate) {
+                            return@forEachIndexed
+                        }
+
+                        // Calculate endHours
+                        var endHours: Float
+
+                        // For ACTIVE events only (truly ongoing, no end time yet)
+                        if (event.isActive) {
+                            endHours = if (isToday) {
+                                maxOf(currentDecimalHours, startHours)
+                            } else {
+                                24f // Past day active event: extend to end of day
+                            }
+                        } else if (event.durationMinutes != null && event.durationMinutes > 0) {
+                            // Normal case: use actual duration
+                            val durationHours = event.durationMinutes / 60f
+                            endHours = startHours + durationHours
+                        } else {
+                            // Duration is 0 or null for completed event
+                            // End time should be determined by next event's start, or current time if last event
+                            // For now, look ahead to next event
+                            val nextEvent = sortedEvents.getOrNull(index + 1)
+                            if (nextEvent != null) {
+                                val nextEventStartDate = getEventStartDate(nextEvent)
+                                if (nextEventStartDate == logDate) {
+                                    // Next event starts on the same day - use its start time as our end
+                                    endHours = nextEvent.getStartTimeHours(companyTimeZone)
+                                } else if (nextEventStartDate != null && nextEventStartDate > logDate) {
+                                    // Next event is on a future day - extend to end of day
+                                    endHours = 24f
+                                } else {
+                                    // Next event is on previous day or unknown - extend to current time or end of day
+                                    endHours = if (isToday) currentDecimalHours else 24f
+                                }
+                            } else {
+                                // Last event with no duration - extend to current time (today) or end of day (past)
+                                endHours = if (isToday) {
+                                    maxOf(currentDecimalHours, startHours)
+                                } else {
+                                    24f
+                                }
+                            }
+                        }
+
+                        // Clamp to day boundaries
+                        endHours = minOf(endHours, 24f)
+
+                        eventDrawDataList.add(EventDrawData(event, rowIndex, startHours, endHours))
+                    }
+
+                    // Draw the ELD status lines
+                    eventDrawDataList.forEachIndexed { index, data ->
+                        val y = rowToY(data.rowIndex)
+                        val startX = hoursToX(data.startHours)
+                        val endX = hoursToX(data.endHours)
 
                         // 1. Draw HORIZONTAL line for this status duration (thicker)
                         drawLine(
@@ -747,18 +920,19 @@ private fun ELDGraph(
                             strokeWidth = horizontalLineWidth
                         )
 
-                        // 2. Draw VERTICAL line at the END to connect to next status (thinner)
-                        if (index < sortedEvents.size - 1) {
-                            val nextEvent = sortedEvents[index + 1]
-                            val nextRowIndex = getRowIndex(nextEvent.dutyStatus)
+                        // 2. Draw VERTICAL line to connect to next status at the TRANSITION POINT
+                        if (index < eventDrawDataList.size - 1) {
+                            val nextData = eventDrawDataList[index + 1]
 
                             // Only draw vertical if status changes (different row)
-                            if (nextRowIndex != rowIndex) {
-                                val nextY = rowToY(nextRowIndex)
+                            if (nextData.rowIndex != data.rowIndex) {
+                                val nextY = rowToY(nextData.rowIndex)
+                                // Use the START of the next event as the transition point
+                                val transitionX = hoursToX(nextData.startHours)
                                 drawLine(
                                     color = lineColor,
-                                    start = Offset(endX, y),
-                                    end = Offset(endX, nextY),
+                                    start = Offset(transitionX, y),
+                                    end = Offset(transitionX, nextY),
                                     strokeWidth = verticalLineWidth
                                 )
                             }
@@ -814,7 +988,7 @@ private fun formatMinutesToTime(minutes: Int): String {
  * Event Row Component
  */
 @Composable
-private fun EventRow(event: DutyStatusEventDto) {
+private fun EventRow(event: DutyStatusEventDto, companyTimeZone: TimeZone) {
     val statusBadge = when (event.dutyStatus) {
         DutyStatusType.OFF_DUTY -> "OFF" to Color(0xFF6B7280)
         DutyStatusType.SLEEPER_BERTH -> "SB" to Color(0xFF8B5CF6)
@@ -851,12 +1025,12 @@ private fun EventRow(event: DutyStatusEventDto) {
 
         // Event Details
         Column(modifier = Modifier.weight(1f)) {
-            // Time and Duration
+            // Time and Duration (using COMPANY TIMEZONE)
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = event.timeFormatted,
+                    text = event.getTimeFormatted(companyTimeZone),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -888,6 +1062,27 @@ private fun EventRow(event: DutyStatusEventDto) {
                 )
             }
 
+            // Note (if exists)
+            if (!event.note.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Description,
+                        contentDescription = "Note",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = event.note,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                }
+            }
+
             // Vehicle inspection note if ON_DUTY
             if (event.dutyStatus == DutyStatusType.ON_DUTY_NOT_DRIVING && event.vehicleNumber != null) {
                 Spacer(modifier = Modifier.height(4.dp))
@@ -906,6 +1101,94 @@ private fun EventRow(event: DutyStatusEventDto) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * FMCSA Certification Dialog
+ * Per 49 CFR Appendix-A-to-Subpart-B-of-Part-395(a):
+ * - Must display the certification statement
+ * - Must prompt driver to select "Agree" or "Not ready"
+ */
+@Composable
+private fun CertificationDialog(
+    onAgree: () -> Unit,
+    onNotReady: () -> Unit
+) {
+    Dialog(onDismissRequest = onNotReady) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.md),
+            shape = RoundedCornerShape(CornerRadius.large),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(Spacing.lg),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Title
+                Text(
+                    text = "Driver's Certification",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(Spacing.lg))
+
+                // FMCSA Required Statement
+                Text(
+                    text = "I hereby certify that my data entries and my record of duty status for this 24-hour period are true and correct.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(Spacing.xl))
+
+                // Buttons Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+                ) {
+                    // Not Ready button
+                    OutlinedButton(
+                        onClick = onNotReady,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(CornerRadius.medium),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = TextSecondary
+                        )
+                    ) {
+                        Text(
+                            text = "Not ready",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    // Agree button
+                    Button(
+                        onClick = onAgree,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(CornerRadius.medium),
+                        colors = ButtonDefaults.buttonColors(containerColor = Blue600)
+                    ) {
+                        Text(
+                            text = "Agree",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }

@@ -16,9 +16,13 @@ import java.util.concurrent.TimeUnit
  */
 interface ApiService {
 
-    // Auth
-    @POST("api/auth/login")
+    // Auth - Mobile login with single-session enforcement
+    @POST("api/mobile/auth/login")
     suspend fun login(@Body request: LoginRequest): Response<LoginResponse>
+
+    // Auth - Mobile logout
+    @POST("api/mobile/auth/logout")
+    suspend fun logout(@Header("Authorization") token: String): Response<ApiResponse<Unit>>
 
     // Vehicles
     @GET("api/mobile/drivers/vehicles")
@@ -46,7 +50,14 @@ interface ApiService {
     suspend fun createTickEvent(
         @Header("Authorization") token: String,
         @Body request: TickEventRequest
-    ): Response<ApiResponse<String>>
+    ): Response<ApiResponse<Any>>
+
+    // Intermediate Events (hourly during DRIVING - FMCSA requirement)
+    @POST("api/mobile/drivers/intermediate-events")
+    suspend fun createIntermediateEvent(
+        @Header("Authorization") token: String,
+        @Body request: IntermediateEventRequest
+    ): Response<ApiResponse<IntermediateEventResponse>>
 
     // DVIR Inspections
     @POST("api/mobile/drivers/inspections")
@@ -109,6 +120,44 @@ interface ApiService {
     suspend fun certifyLog(
         @Header("Authorization") token: String,
         @Path("date") date: String
+    ): Response<ApiResponse<Unit>>
+
+    // HOS Status - Get current HOS from backend
+    @GET("api/mobile/drivers/hos")
+    suspend fun getHOSStatus(
+        @Header("Authorization") token: String
+    ): Response<ApiResponse<HOSResponse>>
+
+    // HOS Status - Send calculated HOS to backend
+    // NOTE: This also updates LastSyncTime on backend automatically
+    @POST("api/mobile/drivers/hos")
+    suspend fun updateHOSStatus(
+        @Header("Authorization") token: String,
+        @Body request: HOSUpdateRequest
+    ): Response<ApiResponse<HOSResponse>>
+
+    // HOS Sync - Send HOS data including violations
+    // Mobile calculates all HOS clocks and violations, backend stores them
+    @POST("api/mobile/drivers/hos/sync")
+    suspend fun syncHOS(
+        @Header("Authorization") token: String,
+        @Body request: HOSSyncRequest
+    ): Response<ApiResponse<HOSSyncResponse>>
+
+    // HOS Violations - Create a new violation
+    // Called when mobile detects driver exceeded a limit
+    @POST("api/mobile/drivers/hos/violations")
+    suspend fun createViolation(
+        @Header("Authorization") token: String,
+        @Body request: HosViolationRequest
+    ): Response<ApiResponse<CreateViolationResponse>>
+
+    // HOS Violations - End an active violation
+    // Called when driver takes required break/rest and violation ends
+    @PUT("api/mobile/drivers/hos/violations/end")
+    suspend fun endViolation(
+        @Header("Authorization") token: String,
+        @Body request: EndViolationRequest
     ): Response<ApiResponse<Unit>>
 
     companion object {
